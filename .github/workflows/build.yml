@@ -40,7 +40,7 @@ jobs:
       - name: Build single-file exe
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.1.$env:GITHUB_RUN_NUMBER" }
           dotnet publish src/CodeSchool/CodeSchool.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
             -p:Version=$version -o out
@@ -55,10 +55,19 @@ jobs:
           name: Code-School
           path: dist/
 
-      - name: Publish release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Every successful build of main becomes a numbered release (0.1.<run>), so the Releases page always has
+      # the newest Code School.exe. Tags pushed by hand (v1.2.3) publish under their own name.
+      - name: Publish release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v0.1.{0}', github.run_number) }}
+          name: Code School ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('0.1.{0}', github.run_number) }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            Download **Code School.exe** below and double-click it. It's one file: the lessons and Python are inside.
+            Windows may say it doesn't recognise the app (it isn't code-signed yet): choose More info, then Run anyway.
           files: |
             dist/Code School.exe
             dist/SHA256SUMS.txt
