@@ -446,8 +446,9 @@ function foot(kind, title, sub, label) {
   const m = $("msg"); m.replaceChildren(); if (title) m.append(el("b", null, title)); if (sub) m.append(el("span", null, sub));
   $("act").textContent = label; $("act").disabled = false;
 }
-const KIND = {L: "Read", V: "Watch the code run", P: "Quick question", F: "Fill in the blank", W: "Your turn: write code", O: "Puzzle: put the lines in order"};
+const KIND = {T: "Just try it (no grading)", L: "Read", V: "Watch the code run", P: "Quick question", F: "Fill in the blank", W: "Your turn: write code", O: "Puzzle: put the lines in order"};
 const TODO = {
+  T: "This one is just for playing. Change the code, press Run, see what happens. Nothing is graded and nothing can break. Press Continue when you're ready.",
   L: "Read this, then press Continue at the bottom. Not clear? Press \"Explain it another way\".",
   V: "Press Next ▶ to run one line at a time. The yellow arrow is the line about to run. Variables shows what each name holds right now. Output shows what has been printed.",
   P: "Pick one answer, then press Check at the bottom.",
@@ -477,6 +478,11 @@ function showStep() {
   const text = el("div", "text"); box.append(text);
   text.append(el("div", "kind", (cur.project && st.k === "W" ? "Milestone · " : "") + KIND[st.k]));
   const todo = el("div", "todo", TODO[st.k]);
+  if (st.k === "T") {                                     // just try it: an editor, no grading
+    text.append(el("h2", null, "Just try it"), el("p", null, st.q), todo);
+    const wb = workbench(st.start || "", null); box.classList.add("wide"); box.append(wb.node); bench = wb;
+    state = "next"; foot("", "", "", "Continue"); return;
+  }
   if (st.k === "L" || st.k === "V") {
     text.append(el("h2", null, st.h)); rich(text, st.t); text.append(todo);
     text.append(listenButton(() => st.h + ". " + st.t));
@@ -494,6 +500,8 @@ function showStep() {
   text.append(todo);
   text.append(listenButton(() => st.q + (st.k === "P" ? ". The options are: " + st.opts.join(". ") : "")));
   if (st.code && st.k !== "W") text.append(el("pre", null, st.code));
+  const card = rememberCard(st, si);
+  if (card) text.append(card);
   if (st.k === "P") {
     const opts = el("div", "opts"); text.append(opts);
     st.opts.map((_, i) => i).sort(() => Math.random() - 0.5).forEach(i => {
@@ -766,7 +774,7 @@ function confetti() { if (calm) return; for (let k = 0; k < 4; k++) setTimeout((
      the last two rungs means that pass doesn't count as proof (it's still good practice).
    - Skill map with an honest timeline, and a weekly build.
    Uses app.js's globals (S, el, openLesson, call, rich, steps, si, cur, save, today...). */
-const MIN = {L: 1.5, V: 2.5, P: 1.5, F: 1.5, O: 3, W: 6};          // rough minutes per step, for sizing sessions
+const MIN = {T: 3, L: 1.5, V: 2.5, P: 1.5, F: 1.5, O: 3, W: 6};          // rough minutes per step, for sizing sessions
 const SK = id => window.PATH.find(s => s.id === id);
 function skillState(id) {
   const r = (S.path = S.path || {skills: {}, builds: {}, minutes: 60}).skills[id] || {stage: 0, proofs: []};
@@ -778,8 +786,13 @@ const levelOpen = n => n === 1 || window.PATH.filter(s => s.level === n - 1).eve
 function currentSkill() { return window.PATH.find(s => levelOpen(s.level) && !learned(s.id)) || null; }
 function chunkSteps(sk, stage) {
   const tag = st => ({...st, pathSkill: sk.id, chunk: stage});
-  if (stage === 0) return [{k: "L", h: sk.name, t: sk.concept}, sk.worked, sk.fill, sk.faded].map(tag);
-  if (stage === 1) return [sk.write, ...sk.predict].map(tag);
+  const T = (window.PATH_TEACH || {})[sk.id];
+  if (stage === 0) {
+    const teach = T ? T.teach.map(t => ({k: "L", h: t.h, t: t.t, code: t.code})) : [{k: "L", h: sk.name, t: sk.concept}];
+    const tryIt = T && T.try ? [{k: "T", q: T.try.q, start: T.try.start}] : [];
+    return [...teach, ...tryIt, sk.worked, sk.fill].map(tag);
+  }
+  if (stage === 1) return [sk.faded, sk.write, ...sk.predict].map(tag);
   return [sk.bug].map(tag);
 }
 function proveDue() {                     // learned skills still needing proof, not already proved today
@@ -791,9 +804,9 @@ function composeSession() {
   let mins = 0;
   const add = st => { out.push(st); mins += MIN[st.k] || 2; };
   dueReviews().slice(0, 5).forEach(r => add(r.st));
-  proveDue().slice(0, 2).forEach(s => {
-    const n = skillState(s.id).proofs.length + (skillState(s.id).tries || 0);
-    add({...s.prove[n % s.prove.length], pathSkill: s.id, prove: true, q: "Prove it · " + s.name + "\n\n" + s.prove[n % s.prove.length].q});
+  const proves = proveDue().slice(0, 2).map(s => {          // added at the END, after the warm-up and new learning
+    const n = skillState(s.id).proofs.length + (skillState(s.id).tries || 0), p = s.prove[n % s.prove.length];
+    mins += MIN.W; return {...p, pathSkill: s.id, prove: true, q: "Quick check: " + s.name + "\n\nYou learned this before. The card below shows what you need.\n\n" + p.q};
   });
   // the next pieces of the current skill; if time is left and that skill finishes, carry on to the next one in its level
   const order = window.PATH.filter(x => levelOpen(x.level) && !learned(x.id));
@@ -804,6 +817,7 @@ function composeSession() {
     }
     if (mins >= budget - 6) break;
   }
+  out.push(...proves);
   return {steps: out, chunks: plannedChunks, minutes: Math.round(mins), coach: !currentSkill()};
 }
 function startSession() {
@@ -886,9 +900,10 @@ function drawPath(main) {
   const parts = el("ul", "parts");
   const nRev = Math.min(5, dueReviews().length), nProve = Math.min(2, proveDue().length);
   if (nRev) parts.append(el("li", null, `Warm-up: ${nRev} question${nRev > 1 ? "s" : ""} you're about to forget`));
-  if (nProve) parts.append(el("li", null, `Prove it: ${nProve} fresh problem${nProve > 1 ? "s" : ""} on skills you learned`));
-  const names = ["watch it, fill it, finish it", "write it yourself + read code", "bug hunt"];
+  
+  const names = ["learn it step by step, try it, watch it", "finish it, write it, read code", "bug hunt"];
   s.chunks.forEach(([id, st]) => parts.append(el("li", null, `${SK(id).name}: ${names[st]}`)));
+  if (nProve) parts.append(el("li", null, `Then a quick check on ${nProve} skill${nProve > 1 ? "s" : ""} you learned before (with a reminder card)`));
   if (!s.chunks.length && !nProve && !nRev) parts.append(el("li", null, "A coach-written lesson for the next advanced topic"));
   const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", startSession);
   card.append(parts, go);
@@ -934,6 +949,18 @@ function drawPath(main) {
   v.append(wb);
 }
 
+/* the Remember card: the pattern you need, on screen while you answer (never tested on something that isn't here) */
+function rememberCard(st, at) {
+  let c = st.pathSkill && window.PATH_TEACH && window.PATH_TEACH[st.pathSkill] ? window.PATH_TEACH[st.pathSkill].card : null;
+  if (!c) {                                               // regular lessons: the most recent example in this lesson
+    for (let i = at - 1; i >= 0; i--) { const p = steps[i]; if ((p.k === "L" || p.k === "V") && p.code) { c = {title: "Remember: " + p.h, code: p.code}; break; } }
+  }
+  if (!c) return null;
+  const d = el("details", "remember"); d.open = true;
+  d.append(el("summary", null, c.title.startsWith("Remember") ? c.title : "Remember: " + c.title), el("pre", null, c.code));
+  if (c.note) d.append(el("p", null, c.note));
+  return d;
+}
 /* a read-only window for automated tests (tools/ and the build check) */
 window.__cs = {get steps() { return steps; }, get si() { return si; }, get bench() { return bench; }, get S() { return S; }, closeLesson, show};
 /* ---------- start ---------- */

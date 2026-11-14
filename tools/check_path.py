@@ -15,8 +15,8 @@ WEB = ROOT / "src" / "CodeSchool" / "web"
 
 
 def load_path():
-    js = ("const window = {}; " + (WEB / "path.js").read_text(encoding="utf-8") +
-          "\nconsole.log(JSON.stringify({path: window.PATH, coach: window.PATH_COACH, builds: window.WEEKLY_BUILDS}));")
+    js = ("const window = {}; " + (WEB / "path.js").read_text(encoding="utf-8") + "\n" + (WEB / "path_teach.js").read_text(encoding="utf-8") +
+          "\nconsole.log(JSON.stringify({path: window.PATH, teach: window.PATH_TEACH, coach: window.PATH_COACH, builds: window.WEEKLY_BUILDS}));")
     with tempfile.TemporaryDirectory() as d:           # a file, not "node -e": Windows caps command-line length
         f = Path(d, "dump_path.js")
         f.write_text(js, encoding="utf-8")
@@ -64,6 +64,15 @@ def main():
         if t.get("err") or not t.get("steps"):
             bad += 1
             print(f"BAD  {sk['id']}/worked: {t.get('err', 'no steps')}")
+    for sk in data["path"]:                            # the teaching: every skill has it, and its code runs cleanly
+        t = data["teach"].get(sk["id"])
+        if not t or not t.get("card") or not t.get("teach") or not t.get("try"):
+            bad += 1; print(f"BAD  {sk['id']}: missing teaching, card or try-it"); continue
+        for i, code in enumerate([x["code"] for x in t["teach"] if x.get("code")] + [t["try"]["start"]]):
+            n += 1
+            r = run({"mode": "run", "code": code, "test": ""})
+            if r.get("err") or r.get("res") == "TIMEOUT":
+                bad += 1; print(f"BAD  {sk['id']}/teach code {i + 1}: {r.get('err')}")
     print(f"{len(data['path'])} skills, {n} items checked, {bad} problem(s)")
     sys.exit(1 if bad else 0)
 
