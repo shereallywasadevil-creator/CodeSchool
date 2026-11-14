@@ -1,4 +1,6 @@
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Text.Json;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
@@ -17,6 +19,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => PaintTitleBar();
         Loaded += async (_, _) => await StartAsync();
     }
 
@@ -97,5 +100,25 @@ public partial class MainWindow : Window
             Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new Dictionary<string, object?> { ["id"] = id, ["result"] = result }));
         }
         catch { /* window closing */ }
+    }
+
+    // The title bar in the app's own colours instead of Windows' white (like Discord's). Windows still draws it,
+    // so the minimise/maximise/close buttons, dragging and snapping all keep working.
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_BORDER_COLOR = 34, DWMWA_CAPTION_COLOR = 35, DWMWA_TEXT_COLOR = 36;
+    private static int Rgb(int r, int g, int b) => r | (g << 8) | (b << 16);      // Windows wants 0x00BBGGRR
+
+    private void PaintTitleBar()
+    {
+        try
+        {
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            int on = 1, bg = Rgb(0x0F, 0x14, 0x16), text = Rgb(0xE6, 0xED, 0xF0);
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int));   // Windows 10: dark bar
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref bg, sizeof(int));             // Windows 11: exact colour
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref bg, sizeof(int));
+            DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ref text, sizeof(int));
+        }
+        catch { /* older Windows: keep the normal bar */ }
     }
 }
