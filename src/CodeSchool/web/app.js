@@ -20,7 +20,9 @@ function call(type, payload, onPartial) {
 }
 
 /* ---------- course: written units + projects + units the coach teaches live ---------- */
-const UNITS = window.COURSE.map((u, i) => ({...u, n: i + 1, lessons: u.lessons.map((l, j) => ({...l, key: u.id + "_" + j, unit: u.name, color: u.color}))}));
+const JOB = window.ON_THE_JOB || {};
+const UNITS = window.COURSE.map((u, i) => ({...u, n: i + 1, lessons: u.lessons.map((l, j) => ({...l, key: u.id + "_" + j, unit: u.name, color: u.color,
+  steps: JOB[l.t] ? [...l.steps, {k: "L", h: "On the job", t: JOB[l.t]}] : l.steps}))}));
 window.LATER.forEach(([id, name, color, topics]) => UNITS.push({id, name, color, n: UNITS.length + 1, sub: "Taught live by your coach",
   lessons: topics.map((t, j) => ({t, gen: true, key: id + "_" + j, unit: name, color}))}));
 const PROJECTS = window.PROJECTS.map(p => ({...p, key: p.id, unit: "Project", project: true}));
@@ -48,6 +50,30 @@ function rich(box, text) {
   });
 }
 
+/* ---------- voice coach: speaks praise and encouragement, and reads steps aloud on request ---------- */
+const VOICE = {voice: null};
+function pickVoice() {
+  if (!window.speechSynthesis) return;
+  const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+  const score = v => (/natural|neural|online/i.test(v.name) ? 20 : 0) + (/aria|jenny|ava|emma|andrew|brian|guy|michelle|sonia|libby|ryan/i.test(v.name) ? 6 : 0) + (/en-US/i.test(v.lang) ? 2 : 0) + (/zira|david|mark/i.test(v.name) ? -3 : 0);
+  VOICE.voice = vs.sort((a, b) => score(b) - score(a))[0] || null;
+}
+if (window.speechSynthesis) { speechSynthesis.onvoiceschanged = pickVoice; pickVoice(); }
+const voiceOn = () => S.voice !== false && !!window.speechSynthesis;
+function speak(text, force) {
+  if ((!voiceOn() && !force) || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(String(text).replace(/[`*#]/g, "").replace(/\s+/g, " ").slice(0, 1200));
+  if (VOICE.voice) u.voice = VOICE.voice;
+  u.rate = 1.03; u.pitch = 1.05;
+  u.onstart = () => $("voicebox").classList.add("talking");
+  u.onend = u.onerror = () => $("voicebox").classList.remove("talking");
+  speechSynthesis.speak(u);
+}
+function drawVoice() { const b = $("voice-toggle"); b.textContent = voiceOn() ? "On" : "Off"; b.setAttribute("aria-pressed", String(voiceOn())); }
+$("voice-toggle").addEventListener("click", () => { S.voice = !voiceOn(); if (!S.voice && window.speechSynthesis) speechSynthesis.cancel(); drawVoice(); save(); if (S.voice) speak("Voice coach is on. I've got your back.", true); });
+function listenButton(getText) { const b = el("button", "listen", "Read it to me"); b.addEventListener("click", () => speak(getText(), true)); return b; }
+
 /* ---------- views ---------- */
 let view = "route";
 document.querySelectorAll(".nav").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
@@ -56,7 +82,13 @@ function show(v) {
   document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   const main = $("main"); main.replaceChildren(); main.scrollTop = 0;
   ({route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
-  $("side-note").textContent = doneCount() ? `${doneCount()} lessons done` : "";
+  $("side-note").textContent = doneCount() ? `${doneCount()} lesson${doneCount() === 1 ? "" : "s"} done` : "";
+}
+function countUp(b) {
+  const end = parseInt(b.textContent, 10) || 0; if (!end || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const t0 = performance.now(), dur = 700;
+  const tick = now => { const k = Math.min(1, (now - t0) / dur); b.textContent = String(Math.round(end * (1 - Math.pow(1 - k, 3)))); if (k < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
 }
 function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late, Dilan" : h < 12 ? "Good morning, Dilan" : h < 18 ? "Good afternoon, Dilan" : "Good evening, Dilan"; }
 
@@ -73,6 +105,8 @@ function drawRoute(main) {
   [[doneCount(), "lessons done"], [S.ran, "programs you ran"], [S.days.length, S.days.length === 1 ? "day learning" : "days learning"]]
     .forEach(([n, t]) => { const f = el("div", "fact"); f.append(el("b", null, String(n)), el("span", null, t)); facts.append(f); });
   hero.append(card, facts); v.append(hero);
+  hero.classList.add("rise");
+  facts.querySelectorAll("b").forEach(b => countUp(b));
   const due = dueReviews();
   if (due.length) {
     const r = el("div", "review"); r.append(el("div", null, `${due.length} question${due.length === 1 ? "" : "s"} from earlier lessons ${due.length === 1 ? "is" : "are"} ready for review. Two minutes now keeps them from fading.`));
@@ -84,6 +118,8 @@ function drawRoute(main) {
     const fin = u.lessons.filter(l => S.done[l.key]).length;
     const h = el("div", "uhead"), t = el("div"); t.append(el("b", null, u.name), el("span", null, u.sub));
     h.append(el("i", null, String(u.n)), t, el("span", "pct", `${fin} of ${u.lessons.length}`));
+    const bar = el("div", "ubar"), fill = el("i"); bar.append(fill); requestAnimationFrame(() => { fill.style.width = Math.round(100 * fin / u.lessons.length) + "%"; });
+    box.classList.add("rise"); box.style.animationDelay = Math.min(u.n * 45, 700) + "ms";
     const line = el("div", "line");
     const stops = [...u.lessons, ...PROJECTS.filter(p => p.after === u.id)];
     stops.forEach(l => {
@@ -92,7 +128,7 @@ function drawRoute(main) {
         el("small", null, S.done[l.key] ? "done" : l === nx ? "you are here" : l.project ? "build it" : l.gen ? "with your coach" : ""));
       b.addEventListener("click", () => openLesson(l)); line.append(b);
     });
-    box.append(h, line); map.append(box);
+    box.append(h, bar, line); map.append(box);
   });
 }
 
@@ -159,7 +195,7 @@ function drawCoach(main) {
     const box = sayBox("Thinking…"); chat.append(box); main.scrollTop = 1e6;
     const r = await call("coach", {messages: talk.slice(-10)}, t => { box.replaceChildren(); rich(box, t); main.scrollTop = 1e6; });
     box.replaceChildren();
-    if (r.error) { talk.pop(); rich(box, r.error); } else { rich(box, r.text); talk.push({role: "assistant", content: r.text}); }
+    if (r.error) { talk.pop(); rich(box, r.error); } else { rich(box, r.text); talk.push({role: "assistant", content: r.text}); box.append(listenButton(() => r.text)); }
     main.scrollTop = 1e6;
   });
 }
@@ -309,6 +345,7 @@ function showStep() {
   const todo = el("div", "todo", TODO[st.k]);
   if (st.k === "L" || st.k === "V") {
     text.append(el("h2", null, st.h)); rich(text, st.t); text.append(todo);
+    text.append(listenButton(() => st.h + ". " + st.t));
     if (st.k === "L" && st.code) {
       text.append(el("pre", null, st.code));
       const tb = el("button", null, "Watch it run"), vb = el("div"); tb.addEventListener("click", () => visualize(vb, st.code)); text.append(tb, vb);
@@ -321,6 +358,7 @@ function showStep() {
   text.append(el("h2", null, st.q.split("\n\n")[0]));
   rich(text, st.q.split("\n\n").slice(1).join("\n\n"));
   text.append(todo);
+  text.append(listenButton(() => st.q + (st.k === "P" ? ". The options are: " + st.opts.join(". ") : "")));
   if (st.code && st.k !== "W") text.append(el("pre", null, st.code));
   if (st.k === "P") {
     const opts = el("div", "opts"); text.append(opts);
@@ -393,13 +431,15 @@ async function act() {
   if (ok) {
     if (!wrongOnce) firstTry++;
     run++; burst();
-    foot("good", STREAK[run] || pick(PRAISE), st.k === "W" ? " Your code passed every check." : (st.why ? " " + st.why : ""), "Continue");
+    const praise = STREAK[run] || pick(PRAISE);
+    foot("good", praise, st.k === "W" ? " Your code passed every check." : (st.why ? " " + st.why : ""), "Continue");
+    speak(praise + (st.k === "W" ? " Your code passed every check." : ""));
     state = "next";
   } else {
     run = 0; wrongOnce = true;
     if (st.k !== "W" && !cur.review && !cur.daily && !S.missed.some(m => JSON.stringify(m) === JSON.stringify(st))) { S.missed.push(st); S.missed = S.missed.slice(-40); }
-    if (st.k === "W") foot("bad", "Not yet. Keep going.", " " + why, "Check again");
-    else { foot("bad", pick(SOFT), " " + why, "Continue"); state = "next"; }
+    if (st.k === "W") { foot("bad", "Not yet. Keep going.", " " + why, "Check again"); speak(pick(["Not yet, but you're close. Read the hint at the bottom.", "Almost there. Check the message at the bottom and try again.", "That's okay. Every developer hits this. Look at the hint and give it another go."])); }
+    else { const soft = pick(SOFT); foot("bad", soft, " " + why, "Continue"); state = "next"; speak(soft + " " + (st.why || "")); }
   }
   $("streak").textContent = run >= 2 ? run + " in a row" : "";
   save();
@@ -415,7 +455,7 @@ function finish() {
   save();
   $("bar").style.width = "100%";
   const stage = $("stage"); stage.replaceChildren();
-  const box = el("div", "step done"); stage.append(box);
+  const box = el("div", "step finished"); stage.append(box);
   const pct = tried ? Math.round(100 * firstTry / tried) : 100;
   const head = cur.project ? "You built it." : pct === 100 ? "Flawless. Every single one." : pct >= 80 ? "That was strong." : pct >= 50 ? "You pushed through. That's the real skill." : "You finished. That's what counts.";
   box.append(el("div", "kind", cur.unit), el("h2", null, head));
@@ -426,8 +466,9 @@ function finish() {
   box.append(b3);
   const note = el("p", "note"); box.append(note);
   if (first) call("coach", {prompt: `Dilan is a beginner learning to code toward a tech job. He just finished "${cur.t}" (${cur.unit}) with ${pct}% right first try, and has now finished ${n} lessons. Write one or two sentences of genuine, specific encouragement naming what he can now do that he couldn't before. Warm, plain, no emoji.`})
-    .then(r => { if (r.text) { note.textContent = r.text; note.className = ""; } });
+    .then(r => { if (r.text) { note.textContent = r.text; note.className = ""; setTimeout(() => speak(r.text), 2600); } });
   confetti();
+  speak(head + (first ? ` That's ${n} lesson${n === 1 ? "" : "s"} done. I'm proud of you, Dilan.` : ""));
   if (cur.project && cur.yours) {
     const y = el("div", "explain"); y.style.textAlign = "left";
     y.append(el("h3", null, "Make it yours"), el("p", "note", "This is where real skill comes from: add something the steps didn't tell you to. Pick one and build it in the Playground with your code."));
@@ -467,7 +508,12 @@ function lessonPrompt(topic, unit, mode) {
   const py = !NO_PY.test(topic);
   return `You teach coding to Dilan, who started from zero and wants to work in tech. Lessons he has finished: ${done}.
 ${mode === "practice" ? `Write a PRACTICE set on "${topic}": 6 to 8 steps, mostly checks and exercises, from easy to harder, with one short L reminder first.` :
-`Write ONE lesson on "${topic}" (unit: ${unit}) as 10 to 14 small steps. Go slowly and in detail: explain each idea in plain words with an everyday analogy, show why it matters at work, give worked examples, and name the most common mistake. Mix learning and doing; never more than two L steps in a row.`}
+`Write ONE lesson on "${topic}" (unit: ${unit}) as 10 to 14 small steps. Go slowly and in detail: explain each idea in plain words with an everyday analogy, give worked examples, and name the most common mistake. Mix learning and doing; never more than two L steps in a row.
+This course prepares him for a real tech job, so the lesson MUST also teach the job itself:
+- an L step titled "On the job": how working developers actually use this, day to day, on a team;
+- what managers and interviewers look for in someone who does this well, and the mistakes that make juniors look inexperienced;
+- HOW to do it the way a professional does, as concrete steps he can follow;
+- one realistic work-style task (phrased like a ticket from a team lead: context, what's needed, how it will be checked).`}
 Return ONLY JSON: {"steps": [ ... ]}. Each step is one of:
 {"k":"L","h":"short heading","t":"2-4 short paragraphs separated by blank lines; use \`inline code\`","code":"optional example"}
 ${py ? `{"k":"V","h":"heading","t":"what to watch for","code":"a short Python example (under 12 lines, no input()) to step through line by line"}` : ""}
@@ -516,5 +562,5 @@ function burst() { if (calm) return; const r = $("act").getBoundingClientRect();
 function confetti() { if (calm) return; for (let k = 0; k < 4; k++) setTimeout(() => spawn(innerWidth * (0.2 + 0.2 * k), innerHeight * 0.35, 40, 7, 6), k * 120); }
 
 /* ---------- start ---------- */
-call("load").then(v => { if (v && v.done) Object.assign(S, v); show("route"); });
+call("load").then(v => { if (v && v.done) Object.assign(S, v); drawVoice(); show("route"); });
 }

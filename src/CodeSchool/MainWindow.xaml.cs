@@ -33,6 +33,7 @@ public partial class MainWindow : Window
             core.Settings.AreDefaultContextMenusEnabled = true;   // keeps copy / paste on right-click
             core.SetVirtualHostNameToFolderMapping("app.codeschool", web, CoreWebView2HostResourceAccessKind.Allow);
             core.WebMessageReceived += OnMessage;
+            Web.KeyDown += (_, k) => { if (k.Key == System.Windows.Input.Key.F11) ToggleFullScreen(); };
             core.NewWindowRequested += (_, a) =>
             {
                 // Links to other sites open in the normal browser, never inside the app.
@@ -53,6 +54,16 @@ public partial class MainWindow : Window
         {
             Loading.Text = "Code School couldn't start: " + ex.Message;
         }
+    }
+
+    private bool _full;
+    /// <summary>F11: true full screen (no title bar), F11 again: back to a maximized window.</summary>
+    private void ToggleFullScreen()
+    {
+        _full = !_full;
+        WindowStyle = _full ? WindowStyle.None : WindowStyle.SingleBorderWindow;
+        WindowState = WindowState.Normal;          // re-apply so the window covers the taskbar too
+        WindowState = WindowState.Maximized;
     }
 
     private async void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
