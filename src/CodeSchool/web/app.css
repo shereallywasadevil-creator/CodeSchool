@@ -26,25 +26,34 @@ button:disabled{opacity:.45;cursor:default}
 button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .go{background:linear-gradient(180deg,#ff6c61,var(--red));border-color:var(--red);color:#fff;box-shadow:0 6px 18px -8px rgba(255,90,78,.8)}.go:hover{border-color:#ffb3ad;box-shadow:0 8px 26px -8px rgba(255,90,78,.95)}
 .ghost{background:none}
-/* sidebar: a faded strip of icons that glides open over the page while you hover it.
-   Opening: the panel eases out, a red edge light grows, then each label fades and slides in one after another.
-   Closing: labels leave together, fast, so it never feels sticky. */
-:root{--ease:cubic-bezier(.22,1,.36,1)}
+/* sidebar: a strip of icons; hovering opens the full panel with a fade.
+   Smoothness: nothing changes size while animating. The panel's background is one layer that scales open
+   (GPU-smooth), labels only fade and drift, and the hover area widens instantly on open but only shrinks back
+   after the closing fade has finished, so the page behind is clickable whenever the panel looks closed.
+   Short delays before opening and closing stop flicker when the mouse passes by. */
+:root{--ease:cubic-bezier(.22,1,.36,1);--ease-io:cubic-bezier(.65,0,.35,1)}
 .side{position:fixed;left:0;top:0;bottom:0;width:68px;z-index:20;overflow:hidden;display:flex;flex-direction:column;padding:16px 10px;gap:4px;
- background:color-mix(in srgb,var(--side) 82%,transparent);backdrop-filter:blur(14px);border-right:1px solid transparent;
- transition:width .5s var(--ease),box-shadow .5s var(--ease),border-color .3s,background .3s;transition-delay:.04s}
-.side::after{content:"";position:absolute;top:0;bottom:0;right:0;width:1px;pointer-events:none;
+ transition:width 0s linear .62s}
+.side>*:not(.glide){width:230px;flex-shrink:0}
+.side::before{content:"";position:absolute;top:0;bottom:0;left:0;width:250px;z-index:-1;pointer-events:none;
+ background:color-mix(in srgb,var(--side) 97%,transparent);transform:scaleX(.272);transform-origin:left center;
+ transition:transform .5s var(--ease-io) .12s}
+.side::after{content:"";position:absolute;top:0;bottom:0;left:249px;width:1px;pointer-events:none;
  background:linear-gradient(180deg,transparent 5%,var(--red) 35%,color-mix(in srgb,var(--red) 25%,transparent) 75%,transparent);
- opacity:0;transform:scaleY(.15);transition:opacity .3s,transform .7s var(--ease)}
-.side:hover,.side:focus-within{width:250px;border-color:var(--rule);background:color-mix(in srgb,var(--side) 96%,transparent);box-shadow:24px 0 60px -20px rgba(0,0,0,.55);transition-delay:0s}
-.side:hover::after,.side:focus-within::after{opacity:.85;transform:none}
+ opacity:0;transition:opacity .3s ease .1s}
+.side:hover,.side:focus-within{width:250px;transition:width 0s linear .08s}
+.side:hover::before,.side:focus-within::before{transform:none;transition:transform .55s var(--ease) .08s}
+.side:hover::after,.side:focus-within::after{opacity:.9;transition:opacity .6s ease .3s}
+/* dims the page a touch while the panel is open, fading in and out */
+body::after{content:"";position:fixed;inset:0 0 0 68px;z-index:19;pointer-events:none;background:rgba(4,7,9,.28);opacity:0;transition:opacity .45s ease .12s}
+body:has(.side:hover)::after,body:has(.side:focus-within)::after{opacity:1;transition:opacity .5s ease .08s}
 .side .brand,.side .nav,.side .voice{white-space:nowrap}
 .side .voice{--i:6}.side #side-note{--i:7}
-.side .brand span,.side .nav span,.side .vpick,.side #voice-toggle,.side #side-note{opacity:0;transform:translateX(-12px);filter:blur(4px);
- transition:opacity .12s,transform .12s,filter .12s}
+.side .brand span,.side .nav span,.side .vpick,.side #voice-toggle,.side #side-note{opacity:0;transform:translateX(-6px);
+ transition:opacity .22s ease,transform .3s var(--ease)}
 .side:hover .brand span,.side:hover .nav span,.side:hover .vpick,.side:hover #voice-toggle,.side:hover #side-note,
 .side:focus-within .brand span,.side:focus-within .nav span,.side:focus-within .vpick,.side:focus-within #voice-toggle,.side:focus-within #side-note{
- opacity:1;transform:none;filter:none;transition:opacity .35s var(--ease),transform .5s var(--ease),filter .35s;transition-delay:calc(.08s + var(--i,0) * .04s)}
+ opacity:1;transform:none;transition:opacity .45s ease,transform .55s var(--ease);transition-delay:calc(.14s + var(--i,0) * .03s)}
 .side .nav svg,.side .brand svg{opacity:.55;transition:opacity .3s,transform .45s var(--ease)}
 .side:hover .nav svg,.side:focus-within .nav svg,.side .nav.on svg,.side .brand svg{opacity:1}
 .side .nav:hover svg{transform:scale(1.14)}
@@ -59,7 +68,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .nav:hover{background:color-mix(in srgb,var(--panel) 70%,transparent);color:var(--ink)}
 .nav.on{color:var(--ink);font-weight:700}
 /* the highlight glides between places instead of jumping */
-.glide{position:absolute;left:10px;right:10px;top:0;height:46px;border-radius:12px;pointer-events:none;z-index:0;opacity:0;
+.glide{position:absolute;left:10px;width:230px;top:0;height:46px;border-radius:12px;pointer-events:none;z-index:0;opacity:0;
  background:linear-gradient(90deg,color-mix(in srgb,var(--red) 24%,transparent),transparent 88%);
  transition:transform .55s var(--ease),opacity .3s}
 .glide.ready{opacity:1}

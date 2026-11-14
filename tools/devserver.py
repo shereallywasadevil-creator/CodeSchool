@@ -80,8 +80,8 @@ class H(BaseHTTPRequestHandler):
         if kind == "trace":
             return self.send(runner({"mode": "trace", "code": p.get("code", "")}))
         if kind == "voices":                     # natural voices need the real app (Piper on Windows)
-            return self.send({"engine": False, "installed": []})
-        if kind in ("voice_get", "say"):
+            return self.send({"ready": False})
+        if kind in ("voice_get", "say"):  # Kokoro runs only inside the desktop app
             return self.send({"error": "Natural voices work in the desktop app."})
         if kind == "coach":
             return self.send(coach(p.get("messages") or [{"role": "user", "content": p.get("prompt", "")}]))

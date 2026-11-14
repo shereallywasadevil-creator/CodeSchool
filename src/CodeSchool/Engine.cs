@@ -123,11 +123,11 @@ public sealed class Engine
             case "voices":
                 return Voices.List();
             case "voice_get":
-                return await Voices.Get(Str("key"), partial);
+                return await Voices.Get(partial);
             case "say":
             {
-                double speed = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("speed", out var sp) && sp.ValueKind == JsonValueKind.Number ? sp.GetDouble() : 1.0;
-                return await Voices.Say(Str("key"), Str("text"), speed);
+                double Num(string k, double d) => payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(k, out var x) && x.ValueKind == JsonValueKind.Number ? x.GetDouble() : d;
+                return await Voices.Say((int)Num("sid", 3), Str("text"), Num("speed", 1.0));
             }
             case "load":
                 try { return JsonNode.Parse(await File.ReadAllTextAsync(ProgressFile)) ?? new JsonObject(); }
@@ -198,10 +198,17 @@ public sealed class Engine
 
     // ------------------------------------------------------------------ coach ----
 
-    private static async Task<string?> PickModel()
+    private static async Task<string?> PickModel(bool preferLoaded = false)
     {
         try
         {
+            if (preferLoaded)
+            {   // a model already in memory answers in seconds; loading another can take a minute while the Builder runs
+                var ps = JsonNode.Parse(await Http.GetStringAsync(Ollama + "/api/ps"))?["models"]?.AsArray();
+                var loaded = ps?.Select(t => (string?)t?["name"]).Where(n => n != null && !n.Contains("embed")).Cast<string>().ToList() ?? new();
+                foreach (var m in Preferred) if (loaded.Contains(m)) return m;
+                if (loaded.Count > 0) return loaded[0];
+            }
             var tags = JsonNode.Parse(await Http.GetStringAsync(Ollama + "/api/tags"))?["models"]?.AsArray();
             var have = tags?.Select(t => (string?)t?["name"]).Where(n => n != null).Cast<string>().ToList() ?? new();
             foreach (var m in Preferred) if (have.Contains(m)) return m;
@@ -213,7 +220,7 @@ public sealed class Engine
     /// <summary>One answer from the Local AI. Returns {text} or {json} or {error}.</summary>
     public static async Task<JsonObject> Coach(JsonArray messages, bool wantJson, Action<string>? partial = null)
     {
-        string? model = await PickModel();
+        string? model = await PickModel(preferLoaded: !wantJson);
         if (model == null)
             return new JsonObject { ["error"] = "Your coach needs Ollama running. Open Local AI (or Ollama), then try again." };
         var body = new JsonObject
@@ -221,11 +228,13 @@ public sealed class Engine
             ["model"] = model, ["stream"] = !wantJson, ["keep_alive"] = "10m",
             ["think"] = false,               // thinking models (qwen3.5) otherwise think silently for minutes first
             ["messages"] = JsonNode.Parse(messages.ToJsonString()),
-            ["options"] = new JsonObject { ["temperature"] = wantJson ? 0.4 : 0.7, ["num_ctx"] = 8192 },
+            ["options"] = wantJson
+                ? new JsonObject { ["temperature"] = 0.4, ["num_ctx"] = 8192 }
+                : new JsonObject { ["temperature"] = 0.7, ["num_predict"] = 450 },   // no num_ctx: changing it reloads the model
         };
         if (wantJson) body["format"] = "json";
         string text;
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(wantJson ? 240 : 120));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(wantJson ? 240 : 180));
         try
         {
             var req = new HttpRequestMessage(HttpMethod.Post, Ollama + "/api/chat")

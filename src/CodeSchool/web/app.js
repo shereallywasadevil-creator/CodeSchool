@@ -51,7 +51,7 @@ function rich(box, text) {
 }
 
 /* ---------- voice coach: natural voices (Piper, on this PC) or Windows voices; speaks praise and reads steps on request ---------- */
-const VOICE = {catalog: null, have: {engine: false, installed: []}, audio: null, token: 0, cache: new Map(), busy: null};
+const VOICE = {catalog: null, have: {ready: false}, audio: null, token: 0, cache: new Map(), busy: false};
 const SPEEDS = [["Relaxed", 0.88], ["Normal", 1], ["Quick", 1.14]];
 const winVoices = () => window.speechSynthesis ? speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)) : [];
 function bestWin() {
@@ -59,8 +59,8 @@ function bestWin() {
   const score = v => (v.name === want ? 100 : 0) + (/natural|neural|online/i.test(v.name) ? 20 : 0) + (/aria|jenny|ava|emma|andrew|brian|guy|michelle|sonia|libby/i.test(v.name) ? 6 : 0) + (/en-US/i.test(v.lang) ? 2 : 0) + (/zira|david|mark/i.test(v.name) ? -3 : 0);
   return [...vs].sort((a, b) => score(b) - score(a))[0] || null;
 }
-const natural = () => { const k = S.voiceKey || ""; return k && !k.startsWith("win:") && VOICE.have.installed.includes(k) ? k : ""; };
-const voiceLabel = () => { const k = natural(); if (k) return (VOICE.catalog.voices.find(v => v.key === k) || {}).name || "Natural"; const w = bestWin(); return w ? w.name.replace(/^Microsoft\s+/, "").replace(/\s*-.*$/, "").replace(/\s*\(.*$/, "") : "Pick a voice"; };
+const natural = () => { const k = S.voiceKey || ""; return VOICE.have.ready && /^k:\d+$/.test(k) ? +k.slice(2) : null; };   // Kokoro voice number, or null
+const voiceLabel = () => { const k = natural(); if (k != null) return (VOICE.catalog.voices.find(v => v.sid === k) || {}).name || "Natural"; const w = bestWin(); return w ? w.name.replace(/^Microsoft\s+/, "").replace(/\s*-.*$/, "").replace(/\s*\(.*$/, "") : "Pick a voice"; };
 const voiceOn = () => S.voice !== false;
 const cleanSpeech = t => String(t || "").replace(/```[\s\S]*?```/g, " (see the code on screen) ").replace(/[`*#_>]/g, "").replace(/\s+/g, " ").trim().slice(0, 1500);
 function talking(on) { $("voicebox").classList.toggle("talking", on); }
@@ -70,10 +70,10 @@ function chunks(t) {                                        // short pieces, so 
   (t.match(/[^.!?]+[.!?]*\s*/g) || [t]).forEach(s => { if ((buf + s).length > 240 && buf) { out.push(buf); buf = ""; } buf += s; });
   if (buf.trim()) out.push(buf); return out;
 }
-function synth(key, text) {
-  const id = key + "|" + (S.voiceSpeed || 1) + "|" + text;
+function synth(sid, text) {
+  const id = sid + "|" + (S.voiceSpeed || 1) + "|" + text;
   if (VOICE.cache.has(id)) return VOICE.cache.get(id);
-  const p = call("say", {key, text, speed: S.voiceSpeed || 1}).then(r => r.audio ? "data:audio/wav;base64," + r.audio : null);
+  const p = call("say", {sid, text, speed: S.voiceSpeed || 1}).then(r => r.audio ? "data:audio/wav;base64," + r.audio : null);
   VOICE.cache.set(id, p); if (VOICE.cache.size > 40) VOICE.cache.delete(VOICE.cache.keys().next().value);
   p.then(u => { if (!u) VOICE.cache.delete(id); });
   return p;
@@ -89,11 +89,11 @@ function winSpeak(t) {
   u.onstart = () => talking(true); u.onend = u.onerror = () => talking(false);
   speechSynthesis.speak(u);
 }
-async function speak(text, force, keyOverride) {
+async function speak(text, force, sidOverride) {
   if (!voiceOn() && !force) return;
   hush(); const my = VOICE.token, t = cleanSpeech(text); if (!t) return;
-  const key = keyOverride || natural();
-  if (!key || key.startsWith("win:")) return winSpeak(t);
+  const key = sidOverride != null ? sidOverride : natural();
+  if (key == null) return winSpeak(t);
   const parts = chunks(t); let next = synth(key, parts[0]);
   $("voicebox").classList.add("warming");
   for (let i = 0; i < parts.length; i++) {
@@ -128,38 +128,39 @@ function openVoices() {
     b.addEventListener("click", () => { S.voiceSpeed = v; save(); openVoices(); speak("This is how fast I'll talk.", true); }); sp.append(b); });
   const speedRow = el("div", "vp-row"); speedRow.append(el("b", null, "Speed"), sp); body.append(speedRow);
 
-  body.append(el("h3", null, "Natural voices"), el("p", "note", "These sound the most human. Each one downloads once, then works offline on your PC." + (VOICE.have.engine ? "" : ` The first one also sets up the voice engine (about ${VOICE.catalog.engine ? VOICE.catalog.engine.mb : 22} MB).`)));
+  const C = VOICE.catalog, ready = VOICE.have.ready;
+  body.append(el("h3", null, "Natural voices"), el("p", "note", ready ? "These sound the most human. They run on your PC, offline." : `These sound the most human (they're made by Kokoro and run on your PC, offline). One download unlocks all ${C.voices.length}: about ${C.engine.mb + C.pack.mb} MB, one time.`));
+  if (!ready) {
+    const box = el("div", "vget"), get = el("button", "go", `Download the natural voices · about ${C.engine.mb + C.pack.mb} MB`);
+    const bar = el("div", "vbar"), fill = el("i"); bar.append(fill); bar.hidden = true;
+    const msg = el("small", "vmsg");
+    get.addEventListener("click", async () => {
+      if (VOICE.busy) return; VOICE.busy = true; get.disabled = true; bar.hidden = false; msg.textContent = "Starting…";
+      const r = await call("voice_get", {}, p => {
+        if (p.startsWith("pct ")) { fill.style.width = p.slice(4) + "%"; msg.textContent = msg.dataset.step + " · " + p.slice(4) + "%"; }
+        else if (p.startsWith("step ")) { fill.style.width = "0%"; msg.dataset.step = p.slice(5); msg.textContent = p.slice(5) + "…"; }
+      });
+      VOICE.busy = false;
+      if (r.error) { msg.textContent = r.error; get.disabled = false; bar.hidden = true; return; }
+      const l = await call("voices"); if (l && !l.error) VOICE.have = l;
+      S.voiceKey = "k:" + C.voices[0].sid; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(C.voices[0].name), true);
+    });
+    box.append(get, bar, msg); body.append(box);
+  }
   const grid = el("div", "vp-grid"); body.append(grid);
-  (VOICE.catalog.voices || []).forEach((v, i) => {
-    const have = VOICE.have.installed.includes(v.key), using = natural() === v.key;
-    const c = el("div", "vcard" + (using ? " using" : "")); c.style.setProperty("--i", i);
+  C.voices.forEach((v, i) => {
+    const using = natural() === v.sid;
+    const c = el("div", "vcard" + (using ? " using" : "") + (ready ? "" : " locked")); c.style.setProperty("--i", i);
     const top = el("div", "vtop"); top.append(el("span", "vav", v.name[0]), el("div"));
     top.lastChild.append(el("b", null, v.name), el("small", null, v.who));
     if (v.best) top.append(el("span", "tag", "Most natural"));
     c.append(top, el("p", "note", v.blurb));
-    const row = el("div", "vbtns"); c.append(row);
-    if (have) {
-      const hear = el("button", null, "Hear it"); hear.addEventListener("click", () => speak(SAMPLE(v.name), true, v.key));
+    if (ready) {
+      const row = el("div", "vbtns");
+      const hear = el("button", null, "Hear it"); hear.addEventListener("click", () => speak(SAMPLE(v.name), true, v.sid));
       const use = el("button", using ? "go" : "", using ? "In use" : "Use this"); use.disabled = using;
-      use.addEventListener("click", () => { S.voiceKey = v.key; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true); });
-      row.append(hear, use);
-    } else {
-      const get = el("button", "go", `Get this voice · about ${v.mb} MB`);
-      const bar = el("div", "vbar"), fill = el("i"); bar.append(fill); bar.hidden = true;
-      const msg = el("small", "vmsg");
-      get.addEventListener("click", async () => {
-        if (VOICE.busy) { msg.textContent = "One download at a time. Another voice is on its way."; return; }
-        VOICE.busy = v.key; get.disabled = true; bar.hidden = false; msg.textContent = "Starting…";
-        const r = await call("voice_get", {key: v.key}, p => {
-          if (p.startsWith("pct ")) { fill.style.width = p.slice(4) + "%"; msg.textContent = p.slice(4) + "%"; }
-          else if (p.startsWith("step ")) { fill.style.width = "0%"; msg.textContent = p.slice(5) + "…"; }
-        });
-        VOICE.busy = null;
-        if (r.error) { msg.textContent = r.error; get.disabled = false; bar.hidden = true; return; }
-        const l = await call("voices"); if (l && !l.error) VOICE.have = l;
-        S.voiceKey = v.key; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true);
-      });
-      row.append(get); c.append(bar, msg);
+      use.addEventListener("click", () => { S.voiceKey = "k:" + v.sid; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true); });
+      row.append(hear, use); c.append(row);
     }
     grid.append(c);
   });
@@ -630,7 +631,7 @@ function stepContext() {
   if (st.code) bits.push("Code on screen:\n" + st.code);
   if (bench && bench.ed) bits.push("His code right now:\n" + bench.ed.value);
   if (bench && bench.out && bench.out.textContent.trim()) bits.push("The latest output or message:\n" + bench.out.textContent.slice(0, 800));
-  return bits.join("\n\n").slice(0, 4500);
+  return bits.join("\n\n").slice(0, 2500);
 }
 function askBubble(text, me) {
   const d = el("div", "say" + (me ? " me" : "")); rich(d, text);
@@ -655,10 +656,14 @@ async function sendAsk(q) {
   ASK.busy = true; $("ask-send").disabled = true; $("ask-q").value = "";
   askBubble(q, true);
   ASK.talk.push({role: "user", content: `(Coach notes: you are Dilan's coding coach. He started from zero. He is in the middle of a lesson and asked about it. Answer his exact question in plain words, using this step's own example where you can, in under 180 words. If it's an exercise, guide him toward the answer without writing the full solution unless he asks for it outright. End with one short check-in question only if it helps.\n\n${stepContext()})\n\n${q}`});
-  const box = askBubble("…"); box.classList.add("thinking");
-  const slow = setTimeout(() => { if (box.classList.contains("thinking")) box.firstChild.textContent = "Thinking… (the first answer can take up to a minute while your Local AI wakes up)"; }, 6000);
+  const box = askBubble("Thinking"); box.classList.add("thinking");
+  const t0 = Date.now(), slow = setInterval(() => {
+    if (!box.classList.contains("thinking")) return;
+    const sec = Math.round((Date.now() - t0) / 1000);
+    box.firstChild.textContent = sec < 20 ? "Thinking" : `Still waiting (${sec}s). Your Local AI is probably busy with the Builder's lessons, so your question is in line. It will answer`;
+  }, 1000);
   const r = await call("coach", {messages: ASK.talk.slice(-8)}, t => { box.classList.remove("thinking"); box.replaceChildren(); rich(box, t); $("ask-log").scrollTop = 1e6; });
-  clearTimeout(slow); box.classList.remove("thinking");
+  clearInterval(slow); box.classList.remove("thinking");
   if (r.error || !r.text) { box.replaceChildren(el("p", null, (r.error || "No answer came back.") + " Is your Local AI running? You can ask again.")); ASK.talk.pop(); }
   else {
     box.replaceChildren(); rich(box, r.text); ASK.talk.push({role: "assistant", content: r.text});

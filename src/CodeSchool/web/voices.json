@@ -1,15 +1,18 @@
 {
- "engine": {"name": "Piper", "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip", "mb": 22},
- "base": "https://huggingface.co/rhasspy/piper-voices/resolve/main",
+ "engine": {"name": "sherpa-onnx", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.5/sherpa-onnx-v1.13.5-win-x64-shared-MT-Release.tar.bz2", "mb": 25},
+ "pack": {"name": "Kokoro", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2", "mb": 132},
  "voices": [
-  {"key": "en_US-ryan-high",          "name": "Ryan",    "who": "American man",          "mb": 116, "best": true,  "blurb": "Calm and clear. Studio quality."},
-  {"key": "en_US-lessac-high",        "name": "Lessac",  "who": "American woman",        "mb": 109, "best": true,  "blurb": "Warm, steady narrator. Studio quality."},
-  {"key": "en_GB-cori-high",          "name": "Cori",    "who": "British woman",         "mb": 109, "best": true,  "blurb": "Bright and friendly. Studio quality."},
-  {"key": "en_US-amy-medium",         "name": "Amy",     "who": "American woman",        "mb": 61,  "blurb": "Upbeat and easy to follow."},
-  {"key": "en_US-joe-medium",         "name": "Joe",     "who": "American man",          "mb": 61,  "blurb": "Relaxed, like a friend explaining."},
-  {"key": "en_US-kristin-medium",     "name": "Kristin", "who": "American woman",        "mb": 61,  "blurb": "Gentle and patient."},
-  {"key": "en_US-john-medium",        "name": "John",    "who": "American man",          "mb": 61,  "blurb": "Deeper, unhurried voice."},
-  {"key": "en_GB-alba-medium",        "name": "Alba",    "who": "Scottish woman",        "mb": 61,  "blurb": "Soft Scottish accent."},
-  {"key": "en_GB-northern_english_male-medium", "name": "Northern", "who": "Northern English man", "mb": 61, "blurb": "Down-to-earth Northern English accent."}
+  {"sid": 3,  "name": "Heart",    "who": "American woman", "best": true, "blurb": "Warm and bright. The most natural of the set."},
+  {"sid": 16, "name": "Michael",  "who": "American man",   "best": true, "blurb": "Friendly, relaxed and clear."},
+  {"sid": 21, "name": "Emma",     "who": "British woman",  "best": true, "blurb": "Calm, kind and easy to follow."},
+  {"sid": 2,  "name": "Bella",    "who": "American woman", "blurb": "Upbeat and expressive."},
+  {"sid": 14, "name": "Fenrir",   "who": "American man",   "blurb": "Deeper and confident."},
+  {"sid": 26, "name": "George",   "who": "British man",    "blurb": "Steady, like a good teacher."},
+  {"sid": 9,  "name": "Sarah",    "who": "American woman", "blurb": "Gentle and patient."},
+  {"sid": 18, "name": "Puck",     "who": "American man",   "blurb": "Lively and playful."},
+  {"sid": 25, "name": "Fable",    "who": "British man",    "blurb": "Storyteller style."},
+  {"sid": 6,  "name": "Nicole",   "who": "American woman", "blurb": "Soft and quiet, almost a whisper."},
+  {"sid": 22, "name": "Isabella", "who": "British woman",  "blurb": "Clear and polished."},
+  {"sid": 11, "name": "Adam",     "who": "American man",   "blurb": "Plain and straightforward."}
  ]
 }

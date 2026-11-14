@@ -1,107 +1,76 @@
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Net.Http;
-using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace CodeSchool;
 
 /// <summary>
-/// Natural-sounding voices with Piper, a free neural voice engine that runs on this PC with no internet once set up.
-/// Nothing downloads until the learner clicks "Get this voice". Files go to %LOCALAPPDATA%\CodeSchool\piper and \voices.
-///   voices      -> {"engine": bool, "installed": [keys]}
-///   voice_get   -> downloads the engine (first time) and one voice from the catalog in web/voices.json; streams "pct NN"
-///   say         -> {"audio": base64 wav} spoken by the chosen voice
-/// Piper runs only while it is speaking, so it holds no memory between sentences.
+/// Human-sounding voices with Kokoro, run by sherpa-onnx on this PC (no internet once set up, nothing in the cloud).
+/// One download (the engine + one voice pack) unlocks every voice. Nothing downloads until the learner clicks.
+/// Files go to %LOCALAPPDATA%\CodeSchool\kokoro-engine and \kokoro-voices.
+///   voices      -> {"ready": bool}
+///   voice_get   -> downloads + unpacks both (with Windows' own tar.exe); streams "step ..." and "pct NN"
+///   say         -> {"audio": base64 wav} in voice number `sid`
+/// The engine runs only while it is speaking, so it holds no memory between sentences.
 /// </summary>
 public static class Voices
 {
-    private static readonly string EngineDir = Path.Combine(Engine.DataDir, "piper");
-    private static readonly string VoiceDir = Path.Combine(Engine.DataDir, "voices");
-    private static readonly HttpClient Web = new() { Timeout = TimeSpan.FromMinutes(30) };
+    private static readonly string EngineDir = Path.Combine(Engine.DataDir, "kokoro-engine");
+    private static readonly string PackDir = Path.Combine(Engine.DataDir, "kokoro-voices");
+    private static readonly HttpClient Web = new() { Timeout = TimeSpan.FromMinutes(40) };
     private static readonly SemaphoreSlim DownloadLock = new(1, 1);
     private static readonly SemaphoreSlim SpeakLock = new(1, 1);
-    private static readonly Regex KeyShape = new(@"^[a-z]{2}_[A-Z]{2}-[a-z_0-9]+-(x_low|low|medium|high)$");
 
     static Voices() { Web.DefaultRequestHeaders.UserAgent.ParseAdd("CodeSchool/1.0"); }
 
-    private static string? PiperExe() =>
-        Directory.Exists(EngineDir) ? Directory.EnumerateFiles(EngineDir, "piper.exe", SearchOption.AllDirectories).FirstOrDefault() : null;
-    private static string ModelPath(string key) => Path.Combine(VoiceDir, key + ".onnx");
-    private static bool Installed(string key) => File.Exists(ModelPath(key)) && File.Exists(ModelPath(key) + ".json");
-
-    private static JsonObject Catalog() =>
-        JsonNode.Parse(File.ReadAllText(Path.Combine(Engine.WebDir, "voices.json")))!.AsObject();
-
+    private static JsonObject Catalog() => JsonNode.Parse(File.ReadAllText(Path.Combine(Engine.WebDir, "voices.json")))!.AsObject();
     private static JsonObject Err(string m) => new() { ["error"] = m };
 
-    public static JsonObject List()
-    {
-        var keys = new JsonArray();
-        foreach (var v in Catalog()["voices"]!.AsArray())
-        {
-            string k = (string)v!["key"]!;
-            if (Installed(k)) keys.Add(k);
-        }
-        return new JsonObject { ["engine"] = PiperExe() != null, ["installed"] = keys };
-    }
+    private static string? Find(string dir, string pattern) =>
+        Directory.Exists(dir) ? Directory.EnumerateFiles(dir, pattern, SearchOption.AllDirectories).FirstOrDefault() : null;
+    private static string? Exe() => Find(EngineDir, "sherpa-onnx-offline-tts.exe");
+    private static string? Model() => Find(PackDir, "model.int8.onnx") ?? Find(PackDir, "model.onnx");
+    private static bool Ready() => Exe() != null && Model() != null;
 
-    /// <summary>Only voices listed in the app's own catalog can be fetched, from the catalog's own address.</summary>
-    public static async Task<JsonObject> Get(string key, Action<string>? partial)
+    public static JsonObject List() => new() { ["ready"] = Ready() };
+
+    public static async Task<JsonObject> Get(Action<string>? partial)
     {
-        var cat = Catalog();
-        if (!KeyShape.IsMatch(key) || !cat["voices"]!.AsArray().Any(v => (string?)v!["key"] == key))
-            return Err("That voice isn't in Code School's list.");
-        if (!await DownloadLock.WaitAsync(0)) return Err("Another voice is still downloading. Give it a moment.");
+        if (!await DownloadLock.WaitAsync(0)) return Err("The voices are already downloading. Give it a moment.");
         try
         {
-            if (PiperExe() == null)
-            {
-                partial?.Invoke("step Setting up the voice engine (one time)");
-                string zip = Path.Combine(Engine.DataDir, "piper_download.zip");
-                await Download((string)cat["engine"]!["url"]!, zip, p => partial?.Invoke("pct " + p));
-                string part = EngineDir + ".part";
-                if (Directory.Exists(part)) Directory.Move(part, part + "-" + DateTime.Now.Ticks);   // set aside, never delete
-                ZipFile.ExtractToDirectory(zip, part);
-                Directory.Move(part, EngineDir);
-                File.Move(zip, zip + ".done", true);
-                if (PiperExe() == null) return Err("The voice engine downloaded but piper.exe wasn't inside. Try again later.");
-            }
-            if (!Installed(key))
-            {
-                Directory.CreateDirectory(VoiceDir);
-                string[] p = key.Split('-');                       // en_US-ryan-high -> en/en_US/ryan/high/en_US-ryan-high.onnx
-                string url = $"{(string)cat["base"]!}/{p[0][..2]}/{p[0]}/{p[1]}/{p[2]}/{key}.onnx";
-                partial?.Invoke("step Downloading the voice");
-                await Download(url + ".json", ModelPath(key) + ".json", null);
-                FitConfig(ModelPath(key) + ".json");
-                await Download(url, ModelPath(key), pct => partial?.Invoke("pct " + pct));
-            }
-            return new JsonObject { ["ok"] = true };
+            var cat = Catalog();
+            if (Exe() == null)
+                await Fetch((string)cat["engine"]!["url"]!, EngineDir, "Downloading the voice engine (1 of 2)", partial);
+            if (Model() == null)
+                await Fetch((string)cat["pack"]!["url"]!, PackDir, "Downloading the voices (2 of 2)", partial);
+            return Ready() ? new JsonObject { ["ok"] = true } : Err("The download finished but the voice files weren't inside. Try again later.");
         }
-        catch (Exception ex)
-        {
-            return Err("The download didn't finish (" + ex.Message + "). Check your internet and try again.");
-        }
+        catch (Exception ex) { return Err("The download didn't finish (" + ex.Message + "). Check your internet and try again."); }
         finally { DownloadLock.Release(); }
     }
 
-    /// <summary>
-    /// Newer voice files also list two-letter sounds (like "aɪ") for newer Piper versions. The Windows Piper engine
-    /// reads only one-letter sounds and refuses the whole file, so keep the original file beside it and drop just those
-    /// extra entries; the engine never asks for them anyway.
-    /// </summary>
-    private static void FitConfig(string path)
+    /// <summary>Download a .tar.bz2, unpack it with Windows' tar into dir.part, then rename to dir.</summary>
+    private static async Task Fetch(string url, string dir, string label, Action<string>? partial)
     {
-        var cfg = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        if (cfg["phoneme_id_map"] is not JsonObject map) return;
-        var extra = map.Select(kv => kv.Key).Where(k => k.EnumerateRunes().Count() != 1).ToList();
-        if (extra.Count == 0) return;
-        File.Copy(path, path + ".original", true);
-        foreach (var k in extra) map.Remove(k);
-        File.WriteAllText(path, cfg.ToJsonString());
+        partial?.Invoke("step " + label);
+        string file = dir + ".tar.bz2";
+        await Download(url, file, p => partial?.Invoke("pct " + p));
+        partial?.Invoke("step Unpacking");
+        string part = dir + ".part";
+        if (Directory.Exists(part)) Directory.Move(part, part + "-" + DateTime.Now.Ticks);   // set aside, never delete
+        Directory.CreateDirectory(part);
+        var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "tar.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-xf", file, "-C", part }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        string err = await p.StandardError.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        if (p.ExitCode != 0) throw new Exception("unpacking failed: " + err.Trim());
+        if (Directory.Exists(dir)) Directory.Move(dir, dir + "-old-" + DateTime.Now.Ticks);
+        Directory.Move(part, dir);
+        File.Move(file, file + ".done", true);
     }
 
     /// <summary>Download to name.part, then rename, so a cut-off download never looks finished.</summary>
@@ -127,40 +96,48 @@ public static class Voices
         File.Move(part, target, true);
     }
 
-    public static async Task<JsonObject> Say(string key, string text, double speed)
+    public static async Task<JsonObject> Say(int sid, string text, double speed)
     {
-        string? exe = PiperExe();
-        if (exe == null || !KeyShape.IsMatch(key) || !Installed(key)) return Err("That voice isn't downloaded yet.");
+        string? exe = Exe(), model = Model();
+        if (exe == null || model == null) return Err("The natural voices aren't downloaded yet.");
         text = Regex.Replace(text ?? "", @"\s+", " ").Trim();
         if (text.Length == 0) return Err("Nothing to say.");
         if (text.Length > 1500) text = text[..1500];
-        double scale = Math.Clamp(1.0 / Math.Clamp(speed, 0.6, 1.6), 0.6, 1.6);   // Piper: bigger length_scale = slower
+        string pack = Path.GetDirectoryName(model)!;
         string wav = Path.Combine(Path.GetTempPath(), "codeschool_say_" + Guid.NewGuid().ToString("N") + ".wav");
+        double scale = Math.Clamp(1.0 / Math.Clamp(speed, 0.6, 1.6), 0.6, 1.6);   // bigger length scale = slower
+        string lexicon = Path.Combine(pack, "lexicon-us-en.txt");
+        var args = new List<string>
+        {
+            "--kokoro-model=" + model,
+            "--kokoro-voices=" + Path.Combine(pack, "voices.bin"),
+            "--kokoro-tokens=" + Path.Combine(pack, "tokens.txt"),
+            "--kokoro-data-dir=" + Path.Combine(pack, "espeak-ng-data"),
+            "--kokoro-length-scale=" + scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            "--num-threads=" + Math.Clamp(Environment.ProcessorCount / 2, 2, 6),
+            "--sid=" + Math.Clamp(sid, 0, 60),
+            "--output-filename=" + wav,
+        };
+        if (File.Exists(lexicon)) args.Insert(4, "--kokoro-lexicon=" + lexicon);
+        args.Add(text);
         await SpeakLock.WaitAsync();
         try
         {
             var psi = new ProcessStartInfo(exe)
             {
-                WorkingDirectory = Path.GetDirectoryName(exe)!,
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardInput = true, RedirectStandardError = true, RedirectStandardOutput = true,
-                StandardInputEncoding = new UTF8Encoding(false),
+                WorkingDirectory = Path.GetDirectoryName(exe)!, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardError = true, RedirectStandardOutput = true,
             };
-            foreach (var a in new[] { "--model", ModelPath(key), "--output_file", wav,
-                                      "--length_scale", scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
-                                      "--sentence_silence", "0.25" })
-                psi.ArgumentList.Add(a);
+            foreach (var a in args) psi.ArgumentList.Add(a);
             using var proc = Process.Start(psi)!;
             var errTask = proc.StandardError.ReadToEndAsync();
             var outTask = proc.StandardOutput.ReadToEndAsync();
-            await proc.StandardInput.WriteLineAsync(text);
-            proc.StandardInput.Close();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
             try { await proc.WaitForExitAsync(cts.Token); }
             catch (OperationCanceledException) { try { proc.Kill(true); } catch { } return Err("The voice took too long."); }
-            if (!File.Exists(wav)) return Err("The voice engine didn't answer: " + (await errTask).Trim().Split('\n').LastOrDefault());
-            byte[] bytes = await File.ReadAllBytesAsync(wav);
-            return new JsonObject { ["audio"] = Convert.ToBase64String(bytes) };
+            if (!File.Exists(wav))
+                return Err("The voice engine didn't answer: " + ((await errTask) + (await outTask)).Trim().Split('\n').LastOrDefault());
+            return new JsonObject { ["audio"] = Convert.ToBase64String(await File.ReadAllBytesAsync(wav)) };
         }
         finally
         {

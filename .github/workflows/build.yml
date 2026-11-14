@@ -30,31 +30,33 @@ jobs:
       - name: Check every lesson exercise with a correct answer, and the runner
         run: python tools/check_lessons.py
 
-      - name: Check the natural voices (every download address works, and Piper really speaks)
+      - name: Check the natural voices (downloads, unpacks with Windows tar, and really speaks with the app's settings)
         shell: pwsh
         run: |
           $cat = Get-Content src/CodeSchool/web/voices.json -Raw | ConvertFrom-Json
-          foreach ($v in $cat.voices) {
-            $p = $v.key.Split('-'); $lang = $p[0]
-            $url = "$($cat.base)/$($lang.Substring(0,2))/$lang/$($p[1])/$($p[2])/$($v.key).onnx"
-            $h = Invoke-WebRequest -Uri $url -Method Head -MaximumRedirection 5
-            $mb = [math]::Round([int64]$h.Headers['Content-Length'][0] / 1MB)
-            Invoke-WebRequest -Uri "$url.json" -Method Head -MaximumRedirection 5 | Out-Null
-            Write-Host "OK $($v.key): $mb MB (catalog says $($v.mb))"
-          }
-          Invoke-WebRequest $cat.engine.url -OutFile piper.zip
-          Expand-Archive piper.zip -DestinationPath piper_test
-          $exe = Get-ChildItem piper_test -Recurse -Filter piper.exe | Select-Object -First 1
-          $v = "en_US-amy-medium"; $u = "$($cat.base)/en/en_US/amy/medium/$v.onnx"
-          Invoke-WebRequest $u -OutFile "$v.onnx"; Invoke-WebRequest "$u.json" -OutFile "$v.onnx.json"
-          # same fix the app makes (Voices.FitConfig): drop two-letter sounds the Windows engine can't read
-          python -X utf8 -c "import json,sys; p=sys.argv[1]; c=json.load(open(p,encoding='utf-8')); m=c['phoneme_id_map']; x=[k for k in m if len(k)!=1]; print('dropping', len(x), 'entries:', ' '.join(x)); [m.pop(k) for k in x]; json.dump(c,open(p,'w',encoding='utf-8'),ensure_ascii=False)" "$v.onnx.json"
+          Invoke-WebRequest $cat.engine.url -OutFile engine.tar.bz2
+          Invoke-WebRequest $cat.pack.url -OutFile pack.tar.bz2
+          Write-Host ("engine {0} MB, voices {1} MB (catalog says {2} and {3})" -f [math]::Round((Get-Item engine.tar.bz2).Length/1MB), [math]::Round((Get-Item pack.tar.bz2).Length/1MB), $cat.engine.mb, $cat.pack.mb)
+          New-Item -ItemType Directory engine, pack | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf engine.tar.bz2 -C engine
+          & "$env:SystemRoot\System32\tar.exe" -xf pack.tar.bz2 -C pack
+          $exe = Get-ChildItem engine -Recurse -Filter sherpa-onnx-offline-tts.exe | Select-Object -First 1
+          $model = (Get-ChildItem pack -Recurse -Filter model.int8.onnx | Select-Object -First 1) ?? (Get-ChildItem pack -Recurse -Filter model.onnx | Select-Object -First 1)
+          if (-not $exe) { throw "no sherpa-onnx-offline-tts.exe in the engine download" }
+          if (-not $model) { throw "no model in the voice pack" }
+          $d = $model.DirectoryName
+          Write-Host "Pack files:"; Get-ChildItem $d | ForEach-Object { Write-Host "  $($_.Name)" }
           Push-Location $exe.DirectoryName
-          "Nice work, Dilan. That passed every check." | & $exe.FullName --model "$env:GITHUB_WORKSPACE/$v.onnx" --output_file "$env:GITHUB_WORKSPACE/say.wav" --length_scale 1.00 --sentence_silence 0.25
+          & $exe.FullName --help 2>&1 | Select-String "kokoro" | ForEach-Object { Write-Host "  flag: $_" }
+          $args = @("--kokoro-model=$($model.FullName)", "--kokoro-voices=$d\voices.bin", "--kokoro-tokens=$d\tokens.txt", "--kokoro-data-dir=$d\espeak-ng-data")
+          if (Test-Path "$d\lexicon-us-en.txt") { $args += "--kokoro-lexicon=$d\lexicon-us-en.txt" }
+          $args += @("--kokoro-length-scale=1.00", "--num-threads=2", "--sid=3", "--output-filename=$env:GITHUB_WORKSPACE\say.wav", "Nice work, Dilan. That passed every check.")
+          $t = Measure-Command { & $exe.FullName @args 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Host "  $_" } }
           Pop-Location
+          if (-not (Test-Path say.wav)) { throw "Kokoro made no sound file" }
           $size = (Get-Item say.wav).Length
-          if ($size -lt 20000) { throw "Piper made a sound file of only $size bytes" }
-          Write-Host "Piper spoke: say.wav is $size bytes"
+          if ($size -lt 20000) { throw "Kokoro made a sound file of only $size bytes" }
+          Write-Host ("Kokoro spoke: say.wav is {0} bytes, made in {1:N1} seconds including loading" -f $size, $t.TotalSeconds)
 
       - name: Get Python to carry inside the app (official embeddable package from python.org)
         shell: pwsh
