@@ -431,8 +431,29 @@ async function openLesson(lesson) {
   if (lesson.project && carryCode) {                       // resume a project at the first milestone not yet passed
     const k = S.carry[lesson.key + "#at"] || 0; si = Math.min(k, steps.length - 1);
   }
+  S.resume = S.resume || {};
+  Object.keys(S.resume).forEach(k => { if ((S.resume[k].at || "") < addDays(-14)) delete S.resume[k]; });
+  const R = S.resume[lesson.key];                          // left this lesson part-way: carry on where you were
+  const resumed = R && R.steps && R.si > 0 && R.si < R.steps.length && !lesson.review && !lesson.extra;
+  if (resumed) { steps = R.steps; si = R.si; firstTry = R.firstTry || 0; tried = R.tried || 0; if (R.session) lesson.session = R.session; }
   showStep();
+  if (resumed) {
+    const b = el("div", "resumed"), over = el("button", "ghost", "Start over");
+    b.append(el("span", null, `Picked up where you left off: step ${si + 1} of ${steps.length}. Your code is still here.`), over);
+    over.addEventListener("click", () => { delete S.resume[lesson.key]; save(); openLesson(lesson); });
+    $("stage").prepend(b);
+  }
 }
+/* lesson progress is saved as you go (step, and any code you typed), so leaving never throws it away */
+function rememberSpot() {
+  if (!cur || cur.review || cur.extra || !steps) return;
+  S.resume = S.resume || {};
+  const R = S.resume[cur.key] || {};
+  S.resume[cur.key] = {si, steps, session: cur.session, at: today(), firstTry, tried, codes: R.codes || {}};
+  save();
+}
+function savedCode() { const R = (S.resume || {})[cur && cur.key]; return R && R.codes ? R.codes[si] : undefined; }
+function keepCode(v) { const R = (S.resume || {})[cur && cur.key]; if (!R) return; R.codes = R.codes || {}; R.codes[si] = v; save(); }
 function closeLesson() { closeAsk(); hush(); $("player").classList.remove("on"); state = ""; show(view); }
 $("close").addEventListener("click", closeLesson);
 document.addEventListener("keydown", e => {
@@ -474,7 +495,7 @@ const dueReviews = () => Object.values(S.rev).filter(r => r.due <= today()).slic
 function showStep() {
   const st = steps[si], stage = $("stage"); stage.replaceChildren(); stage.scrollTop = 0;
   $("bar").style.width = Math.round(100 * si / steps.length) + "%";
-  choice = null; wrongOnce = false; bench = null;
+  choice = null; wrongOnce = false; bench = null; rememberSpot();
   const wide = st.k === "W" || st.k === "V";
   const box = el("div", "step" + (wide ? " wide" : "")); stage.append(box);
   const text = el("div", "text"); box.append(text);
@@ -482,7 +503,7 @@ function showStep() {
   const todo = el("div", "todo", TODO[st.k]);
   if (st.k === "T") {                                     // just try it: an editor, no grading
     text.append(el("h2", null, st.h || "Just try it")); rich(text, st.q); if (!st.h) text.append(todo);
-    const wb = workbench(st.start || "", null); box.classList.add("wide"); box.append(wb.node); bench = wb;
+    const sv = savedCode(), wb = workbench(sv != null ? sv : st.start || "", keepCode); box.classList.add("wide"); box.append(wb.node); bench = wb;
     state = "next"; foot("", "", "", "Continue"); return;
   }
   if (st.k === "L" || st.k === "V") {
@@ -539,7 +560,7 @@ function showStep() {
   } else if (st.k === "W") {
     let start = st.start;
     if (st.carry || start == null) start = (carryCode ? carryCode.replace(/\s*$/, "") + "\n\n" : "") + (st.start || "# " + st.q.split("\n")[0].replace(/^Milestone \d+\. /, "") + "\n");
-    bench = workbench(start, null);
+    const sv = savedCode(); bench = workbench(sv != null ? sv : start, keepCode);
     const hint = hintLadder(st, bench), coachB = el("button", null, "Ask my coach");
     coachB.addEventListener("click", () => nudge(st, bench));
     bench.extra.append(hint, coachB);
@@ -608,6 +629,7 @@ function finish() {
   if (cur.review) S.missed = S.missed.filter(m => !steps.includes(m));
   if (!S.days.includes(today())) S.days.push(today());
   if (cur.project) { delete S.carry[cur.key]; delete S.carry[cur.key + "#at"]; }
+  if (S.resume) delete S.resume[cur.key];
   save();
   $("bar").style.width = "100%";
   const stage = $("stage"); stage.replaceChildren();
@@ -866,6 +888,8 @@ function composeSession() {
   return {steps: out, chunks: plannedChunks, minutes: Math.round(mins), coach: !currentSkill()};
 }
 function startSession(afterLearn) {
+  const R = (S.resume || {})["session-" + today()];       // today's session already started: carry on with it
+  if (R && R.steps && R.si > 0) return openLesson({t: "Today's session", key: "session-" + today(), unit: "My path", color: "#ff5a4e", steps: R.steps, daily: true, session: R.session});
   const cur0 = currentSkill();
   if (!afterLearn && cur0 && skillState(cur0.id).stage === 0 && !(S.path.read || {})[cur0.id]) {
     learnSkill = cur0.id; return show("learn", {learnFirst: true});
@@ -956,7 +980,8 @@ function drawPath(main) {
   if (nProve) parts.append(el("li", null, `Then a quick check on ${nProve} skill${nProve > 1 ? "s" : ""} you learned before (from memory first; the reminder is folded)`));
   if (window.PATH.filter(x => mastered(x.id)).length >= 3) parts.append(el("li", null, "Mixed practice: 2 problems with no topic label"));
   if (!s.chunks.length && !nProve && !nRev) parts.append(el("li", null, "A coach-written lesson for the next advanced topic"));
-  const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", () => startSession());
+  const Rs = (S.resume || {})["session-" + today()];
+  const go = el("button", "go", Rs && Rs.si > 0 ? `Continue today's session (step ${Rs.si + 1} of ${Rs.steps.length})` : S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", () => startSession());
   card.append(parts, go);
   const mins = el("select"); mins.setAttribute("aria-label", "Minutes a day");
   [30, 45, 60, 90, 120].forEach(m => { const o = el("option", null, m + " min a day"); o.value = m; o.selected = m === (S.path.minutes || 60); mins.append(o); });
