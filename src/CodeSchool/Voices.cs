@@ -76,6 +76,7 @@ public static class Voices
                 string url = $"{(string)cat["base"]!}/{p[0][..2]}/{p[0]}/{p[1]}/{p[2]}/{key}.onnx";
                 partial?.Invoke("step Downloading the voice");
                 await Download(url + ".json", ModelPath(key) + ".json", null);
+                FitConfig(ModelPath(key) + ".json");
                 await Download(url, ModelPath(key), pct => partial?.Invoke("pct " + pct));
             }
             return new JsonObject { ["ok"] = true };
@@ -85,6 +86,22 @@ public static class Voices
             return Err("The download didn't finish (" + ex.Message + "). Check your internet and try again.");
         }
         finally { DownloadLock.Release(); }
+    }
+
+    /// <summary>
+    /// Newer voice files also list two-letter sounds (like "aɪ") for newer Piper versions. The Windows Piper engine
+    /// reads only one-letter sounds and refuses the whole file, so keep the original file beside it and drop just those
+    /// extra entries; the engine never asks for them anyway.
+    /// </summary>
+    private static void FitConfig(string path)
+    {
+        var cfg = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        if (cfg["phoneme_id_map"] is not JsonObject map) return;
+        var extra = map.Select(kv => kv.Key).Where(k => k.EnumerateRunes().Count() != 1).ToList();
+        if (extra.Count == 0) return;
+        File.Copy(path, path + ".original", true);
+        foreach (var k in extra) map.Remove(k);
+        File.WriteAllText(path, cfg.ToJsonString());
     }
 
     /// <summary>Download to name.part, then rename, so a cut-off download never looks finished.</summary>
