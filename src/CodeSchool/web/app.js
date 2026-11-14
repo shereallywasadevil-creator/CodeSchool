@@ -207,12 +207,14 @@ function moveGlide() {                                       // the sidebar high
 window.addEventListener("resize", moveGlide);
 let view = "path";
 document.querySelectorAll(".nav").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
-function show(v) {
+let learnFirst = false;
+function show(v, opts) {
+  learnFirst = !!(opts && opts.learnFirst);
   view = v;
   document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   moveGlide();
   const main = $("main"); main.replaceChildren(); main.scrollTop = 0;
-  ({path: drawPath, route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
+  ({path: drawPath, learn: m => drawLearn(m, learnFirst), route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
   $("side-note").textContent = doneCount() ? `${doneCount()} lesson${doneCount() === 1 ? "" : "s"} done` : "";
 }
 function countUp(b) {
@@ -500,8 +502,11 @@ function showStep() {
   text.append(todo);
   text.append(listenButton(() => st.q + (st.k === "P" ? ". The options are: " + st.opts.join(". ") : "")));
   if (st.code && st.k !== "W") text.append(el("pre", null, st.code));
-  const card = rememberCard(st, si);
+  const card = rememberCard(st);
   if (card) text.append(card);
+  const ex = el("button", "explainq", "Explain this question"), exBox = el("div");
+  ex.addEventListener("click", () => explainQuestion(st, exBox));
+  text.append(ex, exBox);
   if (st.k === "P") {
     const opts = el("div", "opts"); text.append(opts);
     st.opts.map((_, i) => i).sort(() => Math.random() - 0.5).forEach(i => {
@@ -788,7 +793,8 @@ function chunkSteps(sk, stage) {
   const tag = st => ({...st, pathSkill: sk.id, chunk: stage});
   const T = (window.PATH_TEACH || {})[sk.id];
   if (stage === 0) {
-    const teach = T ? T.teach.map(t => ({k: "L", h: t.h, t: t.t, code: t.code})) : [{k: "L", h: sk.name, t: sk.concept}];
+    const read = (S.path.read || {})[sk.id];               // read on the Learn page already: don't repeat it
+    const teach = read ? [] : T ? T.teach.map(t => ({k: "L", h: t.h, t: t.t, code: t.code})) : [{k: "L", h: sk.name, t: sk.concept}];
     const tryIt = T && T.try ? [{k: "T", q: T.try.q, start: T.try.start}] : [];
     return [...teach, ...tryIt, sk.worked, sk.fill].map(tag);
   }
@@ -820,7 +826,11 @@ function composeSession() {
   out.push(...proves);
   return {steps: out, chunks: plannedChunks, minutes: Math.round(mins), coach: !currentSkill()};
 }
-function startSession() {
+function startSession(afterLearn) {
+  const cur0 = currentSkill();
+  if (!afterLearn && cur0 && skillState(cur0.id).stage === 0 && !(S.path.read || {})[cur0.id]) {
+    learnSkill = cur0.id; return show("learn", {learnFirst: true});
+  }
   const s = composeSession();
   if (s.coach && !s.steps.length) return startCoachSkill();
   if (!s.steps.length) return startCoachSkill();
@@ -905,7 +915,7 @@ function drawPath(main) {
   s.chunks.forEach(([id, st]) => parts.append(el("li", null, `${SK(id).name}: ${names[st]}`)));
   if (nProve) parts.append(el("li", null, `Then a quick check on ${nProve} skill${nProve > 1 ? "s" : ""} you learned before (with a reminder card)`));
   if (!s.chunks.length && !nProve && !nRev) parts.append(el("li", null, "A coach-written lesson for the next advanced topic"));
-  const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", startSession);
+  const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", () => startSession());
   card.append(parts, go);
   const mins = el("select"); mins.setAttribute("aria-label", "Minutes a day");
   [30, 45, 60, 90, 120].forEach(m => { const o = el("option", null, m + " min a day"); o.value = m; o.selected = m === (S.path.minutes || 60); mins.append(o); });
@@ -949,20 +959,113 @@ function drawPath(main) {
   v.append(wb);
 }
 
-/* the Remember card: the pattern you need, on screen while you answer (never tested on something that isn't here) */
-function rememberCard(st, at) {
-  let c = st.pathSkill && window.PATH_TEACH && window.PATH_TEACH[st.pathSkill] ? window.PATH_TEACH[st.pathSkill].card : null;
-  if (!c) {                                               // regular lessons: the most recent example in this lesson
-    for (let i = at - 1; i >= 0; i--) { const p = steps[i]; if ((p.k === "L" || p.k === "V") && p.code) { c = {title: "Remember: " + p.h, code: p.code}; break; } }
-  }
-  if (!c) return null;
+/* the Remember card: only the lines of the skill's card that THIS question actually uses (or no card at all) */
+const CARD_TOKENS = /\/\/|\*\*|%|==|!=|>=|<=|\+=|\bf"|\b(?:and|or|not|for|while|if|elif|else|try|except|def|return|lambda|range|in)\b|\.?\b[a-z_]+(?=\()|\.[a-z_]+|\[-?\d*:?-?\d*\]|\bkey=|\breverse=/g;
+const tokensOf = text => new Set((String(text || "").match(CARD_TOKENS) || []).map(t => t.replace(/^\./, "")));
+function rememberCard(st) {
+  const c = st.pathSkill && window.PATH_TEACH && window.PATH_TEACH[st.pathSkill] ? window.PATH_TEACH[st.pathSkill].card : null;
+  if (!c) return null;                                    // regular lessons: no guessed card (it was often unrelated)
+  const need = tokensOf([st.q, st.code, st.sol, st.start, (st.opts || []).join(" "), (st.a && st.a.join ? st.a.join(" ") : "")].join("\n"));
+  const lines = c.code.split("\n"), keep = new Set();
+  const indent = l => (l.match(/^\s*/) || [""])[0].length;
+  lines.forEach((l, i) => {
+    const code = l.split("#")[0], toks = [...tokensOf(code)].filter(t => !["print", "in"].includes(t) || code.trim().startsWith(t));
+    if (toks.some(t => need.has(t))) {
+      keep.add(i);
+      for (let j = i + 1; j < lines.length && indent(lines[j]) > indent(l); j++) keep.add(j);              // its block
+      for (let j = i - 1; j >= 0 && indent(lines[i]) > 0; j--) { if (indent(lines[j]) < indent(lines[i])) { keep.add(j); break; } }  // its header
+    }
+  });
+  if (!keep.size) return null;
   const d = el("details", "remember"); d.open = true;
-  d.append(el("summary", null, c.title.startsWith("Remember") ? c.title : "Remember: " + c.title), el("pre", null, c.code));
+  d.append(el("summary", null, "Remember: " + c.title), el("pre", null, lines.filter((_, i) => keep.has(i)).join("\n")));
   if (c.note) d.append(el("p", null, c.note));
   return d;
 }
+/* Explain this question: the coach explains THIS question in plain words, without giving the answer */
+async function explainQuestion(st, box) {
+  box.className = "explain"; box.replaceChildren(el("p", "note", "Your coach is reading the question… (the first answer can take up to a minute while your Local AI wakes up)"));
+  const T = st.pathSkill && window.PATH_TEACH ? window.PATH_TEACH[st.pathSkill] : null;
+  const prompt = `You are a patient coding tutor for Dilan, a complete beginner who finds this hard. Explain THIS question to him. Do NOT give the answer, do NOT say which option is right, and do NOT write the solution code.
+Use exactly these four short parts, in plain everyday words (no jargon without explaining it):
+1. What it's asking: say the question again in simpler words.
+2. What you need to know: the one idea this needs, with an everyday comparison.
+3. A similar example: a DIFFERENT tiny example (different names and numbers) and what it prints or does, explained line by line.
+4. How to start: the first thing to do or look at.
+Under 180 words.
+
+The question: ${st.q}
+${st.code ? "The code in the question:\n" + st.code : ""}
+${st.opts ? "The options: " + st.opts.join(" | ") : ""}
+${st.start ? "The starting code:\n" + st.start : ""}
+${T ? "The idea it practises: " + T.card.title + "\n" + T.card.code : ""}`;
+  const r = await call("coach", {prompt}, t => { box.replaceChildren(); rich(box, t); });
+  box.replaceChildren(); rich(box, r.error ? r.error + " Is your Local AI running?" : r.text);
+}
+/* ---------- Learn: a full lesson page for each skill, read at your own pace, BEFORE any questions ---------- */
+let learnSkill = null;
+function runnable(code) {
+  const box = el("div", "runnable"), pre = el("pre", null, code), row = el("div", "row"), out = el("pre", "out");
+  out.hidden = true;
+  const run = el("button", null, "Run"), watch = el("button", "ghost", "Watch it run"), vis = el("div");
+  run.addEventListener("click", async () => { out.hidden = false; out.textContent = "Running…"; paint(out, await call("run", {code, test: ""})); });
+  watch.addEventListener("click", () => { vis.replaceChildren(); visualize(vis, code); });
+  row.append(run, watch); box.append(pre, row, out, vis); return box;
+}
+function drawLearn(main, startAfter) {
+  skillState("print");
+  const v = el("div", "view learnview"); main.append(v);
+  const list = el("nav", "learnlist"), page = el("article", "learnpage");
+  v.append(list, page);
+  const sk = SK(learnSkill) || currentSkill() || window.PATH[0];
+  window.PATH_LEVELS.filter(L => !L.coach).forEach(L => {
+    list.append(el("div", "lvl", `Level ${L.n} · ${L.name}`));
+    window.PATH.filter(x => x.level === L.n).forEach(x => {
+      const b = el("button", "litem" + (x.id === sk.id ? " on" : "") + ((S.path.read || {})[x.id] ? " read" : ""), x.name);
+      b.addEventListener("click", () => { learnSkill = x.id; show("learn"); });
+      list.append(b);
+    });
+  });
+  const T = (window.PATH_TEACH || {})[sk.id];
+  page.append(el("small", "kicker", `Level ${sk.level} · Learn`), el("h1", null, sk.name));
+  if (startAfter) page.append(el("p", "readfirst", "Take your time with this page. Run the examples, change them, ask for a simpler explanation. When it makes sense, press \"Practise it\" at the bottom. The questions come after, not before."));
+  page.append(listenButton(() => sk.name + ". " + (T ? T.teach.map(t => t.h + ". " + t.t).join(" ") : sk.concept)));
+  (T ? T.teach : [{h: sk.name, t: sk.concept}]).forEach((t, i) => {
+    const sec = el("section", "lsec"); sec.style.animationDelay = (i * 60) + "ms";
+    sec.append(el("h2", null, t.h)); rich(sec, t.t);
+    if (t.code) sec.append(runnable(t.code));
+    const simpler = el("button", "ghost", "Explain this more simply"), exp = el("div");
+    simpler.addEventListener("click", () => explainAgain({h: t.h, t: t.t, code: t.code}, exp));
+    sec.append(simpler, exp); page.append(sec);
+  });
+  const worked = el("section", "lsec");
+  worked.append(el("h2", null, "A complete example"), el("p", null, sk.worked.t), runnable(sk.worked.code));
+  page.append(worked);
+  if (T && T.card) {
+    const c = el("section", "lsec pattern");
+    c.append(el("h2", null, "The pattern to remember"), el("pre", null, T.card.code));
+    if (T.card.note) c.append(el("p", null, T.card.note));
+    page.append(c);
+  }
+  if (T && T.try) {
+    const t = el("section", "lsec"), wb = workbench(T.try.start, null);
+    t.append(el("h2", null, "Play with it"), el("p", null, T.try.q.replace("Just try it (no grading). ", "")), wb.node);
+    page.append(t);
+  }
+  const end = el("div", "learnend");
+  const go = el("button", "go", "I've read it. Practise it");
+  go.addEventListener("click", () => {
+    (S.path.read = S.path.read || {})[sk.id] = today(); save();
+    if (startAfter) return startSession(true);
+    const st = skillState(sk.id).stage;
+    openLesson({t: sk.name, key: "practise-" + sk.id + "-" + today(), unit: "Practice", color: "#ff5a4e", steps: chunkSteps(sk, Math.min(st, 2)), daily: true, session: [[sk.id, Math.min(st, 2)]]});
+  });
+  end.append(el("p", null, "Not quite clicking? Press \"Explain this more simply\" on any part, or ask your coach anything in the Coach tab."), go);
+  page.append(end);
+  main.scrollTop = 0;
+}
 /* a read-only window for automated tests (tools/ and the build check) */
-window.__cs = {get steps() { return steps; }, get si() { return si; }, get bench() { return bench; }, get S() { return S; }, closeLesson, show};
+window.__cs = {get steps() { return steps; }, get si() { return si; }, get bench() { return bench; }, get S() { return S; }, closeLesson, show, rememberCard};
 /* ---------- start ---------- */
 call("load").then(v => { if (v && v.done) Object.assign(S, v); loadVoices(); show("path"); });
 }
