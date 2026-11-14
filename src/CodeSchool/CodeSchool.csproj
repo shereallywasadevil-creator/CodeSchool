@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Code School</AssemblyName>
+    <RootNamespace>CodeSchool</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>Code School</Product>
+    <Description>Learn to code, step by step</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The app's screens and the Python runner travel inside the exe and are unpacked on first run. -->
+    <EmbeddedResource Include="web\**\*" LogicalName="web/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Python itself (the official embeddable package), downloaded by the build so the app works on any PC. -->
+    <EmbeddedResource Include="embed\python.zip" LogicalName="python.zip" Condition="Exists('embed\python.zip')" />
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+</Project>

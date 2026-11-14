@@ -1,0 +1,8 @@
+bin/
+obj/
+out/
+dist/
+src/CodeSchool/embed/
+__pycache__/
+*.user
+.vs/

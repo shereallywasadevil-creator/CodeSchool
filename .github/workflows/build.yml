@@ -1,0 +1,64 @@
+name: Build Code School
+
+# Builds "Code School.exe" on GitHub's own Windows machines from this repository's code.
+# Push to main: an exe you can download from the run's Artifacts. Push a tag like v0.1.0: a Release.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check every lesson exercise with a correct answer, and the runner
+        run: python tools/check_lessons.py
+
+      - name: Get Python to carry inside the app (official embeddable package from python.org)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src/CodeSchool/embed | Out-Null
+          Invoke-WebRequest https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip -OutFile src/CodeSchool/embed/python.zip
+          if ((Get-Item src/CodeSchool/embed/python.zip).Length -lt 5mb) { throw "Python download looks wrong" }
+
+      - name: Build single-file exe
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.1.0' }
+          dotnet publish src/CodeSchool/CodeSchool.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+            -p:Version=$version -o out
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "out/Code School.exe" "dist/Code School.exe"
+          $h = (Get-FileHash "dist/Code School.exe" -Algorithm SHA256).Hash.ToLower()
+          "$h  Code School.exe" | Out-File dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Code-School
+          path: dist/
+
+      - name: Publish release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Code School.exe
+            dist/SHA256SUMS.txt
