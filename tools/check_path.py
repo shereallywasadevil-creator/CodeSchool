@@ -64,6 +64,13 @@ def main():
         if t.get("err") or not t.get("steps"):
             bad += 1
             print(f"BAD  {sk['id']}/worked: {t.get('err', 'no steps')}")
+    for sk in data["path"]:                            # the line-order puzzle (built in app.js from the "finish it" answer)
+        lines = [l for l in sk["faded"]["sol"].rstrip().split("\n") if l.strip() and not l.strip().startswith("#")]
+        if 3 <= len(lines) <= 10:
+            n += 1
+            r = run({"mode": "run", "code": "\n".join(lines), "test": sk["faded"]["test"]})
+            if r.get("res") != "PASS":
+                bad += 1; print(f"BAD  {sk['id']}/puzzle: its lines don't pass the test on their own ({r.get('err') or r.get('res')})")
     for sk in data["path"]:                            # the teaching: every skill has it, and its code runs cleanly
         t = data["teach"].get(sk["id"])
         if not t or not t.get("card") or not t.get("teach") or not t.get("try"):

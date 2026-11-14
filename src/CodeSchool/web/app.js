@@ -478,10 +478,10 @@ function showStep() {
   const wide = st.k === "W" || st.k === "V";
   const box = el("div", "step" + (wide ? " wide" : "")); stage.append(box);
   const text = el("div", "text"); box.append(text);
-  text.append(el("div", "kind", (cur.project && st.k === "W" ? "Milestone · " : "") + KIND[st.k]));
+  text.append(el("div", "kind", st.kind || (cur.project && st.k === "W" ? "Milestone · " : "") + KIND[st.k]));
   const todo = el("div", "todo", TODO[st.k]);
   if (st.k === "T") {                                     // just try it: an editor, no grading
-    text.append(el("h2", null, "Just try it"), el("p", null, st.q), todo);
+    text.append(el("h2", null, st.h || "Just try it")); rich(text, st.q); if (!st.h) text.append(todo);
     const wb = workbench(st.start || "", null); box.classList.add("wide"); box.append(wb.node); bench = wb;
     state = "next"; foot("", "", "", "Continue"); return;
   }
@@ -565,6 +565,11 @@ async function act() {
     if (!ok) why = "The answer is " + st.a[0] + ". " + why;
   } else if (st.k === "O") {
     const order = bench.order(); ok = order.every((v, i) => st.lines[v] === st.lines[i]);
+    if (!ok && st.runCheck) {                     // a different order that prints the same thing is right too
+      $("act").disabled = true; $("act").textContent = "Checking…";
+      const mine = await call("run", {code: order.map(i => st.lines[i]).join("\n"), test: st.test});
+      ok = !!mine.pass;
+    }
     if (!ok) why = "The right order is:\n" + st.lines.join("\n") + "\n\n" + why;
   } else if (st.k === "W") {
     $("act").disabled = true; $("act").textContent = "Checking…";
@@ -599,7 +604,7 @@ $("act").addEventListener("click", act);
 function finish() {
   const first = !S.done[cur.key] && !cur.review && !cur.extra && !cur.daily;
   if (!cur.review && !cur.extra && !cur.daily) S.done[cur.key] = today();
-  if (cur.session || cur.coachSkill) onSessionFinished(cur);
+  if (cur.session || cur.coachSkill || cur.mock) onSessionFinished(cur);
   if (cur.review) S.missed = S.missed.filter(m => !steps.includes(m));
   if (!S.days.includes(today())) S.days.push(today());
   if (cur.project) { delete S.carry[cur.key]; delete S.carry[cur.key + "#at"]; }
@@ -798,8 +803,32 @@ function chunkSteps(sk, stage) {
     const tryIt = T && T.try ? [{k: "T", q: T.try.q, start: T.try.start}] : [];
     return [...teach, ...tryIt, sk.worked, sk.fill].map(tag);
   }
-  if (stage === 1) return [sk.faded, sk.write, ...sk.predict].map(tag);
-  return [sk.bug].map(tag);
+  if (stage === 1) return [...sk.predict, parsonsOf(sk), sk.faded, sk.write].filter(Boolean).map(tag);   // read before write
+  return [reviewOf(sk), sk.bug].filter(Boolean).map(tag);
+}
+/* Parsons puzzle: the lines of the "finish it" solution, mixed up. Research (Ericson; Weinstein/Fox "Faded Parsons")
+   finds these teach code writing about as well as writing from scratch, in less time and with less frustration.
+   It comes right before the "finish it" step that uses the same program, so the steps fade: order it, finish it, write a new one. */
+function parsonsOf(sk) {
+  const sol = (sk.faded && sk.faded.sol) || "";
+  const lines = sol.replace(/\s+$/, "").split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));
+  if (lines.length < 3 || lines.length > 10) return null;
+  return {k: "O", runCheck: true, lines, test: sk.faded.test,
+    q: "Put the lines in order\n\nThese lines make a working program, but they're mixed up. Put them in the order that runs correctly. The spaces at the start of a line are part of it: they show which lines belong inside a loop or an if.",
+    why: "Read it top to bottom: a value has to exist before a line can use it, and indented lines run inside the line above them."};
+}
+/* Code review: decide if code someone else (or an AI) wrote actually works. Hiring managers in 2026 say this is what
+   they want from juniors: judging whether code is right, whoever wrote it. */
+function reviewOf(sk) {
+  let h = 0; for (const c of sk.id) h = (h * 31 + c.charCodeAt(0)) | 0;
+  const buggy = (h & 1) === 0 || !sk.write || !sk.write.sol;
+  const bq = sk.bug.q.replace(/^Bug hunt:\s*/, "");
+  const goal = buggy ? (/ but /.test(bq) ? bq.split(/,? but /)[0].replace(/^this /, "It ") + "." : "Check that it works for every input it's meant to handle.")
+                     : sk.write.q.split("\n")[0].replace(/^Your turn:\s*/i, "");
+  return {k: "P", review: true, code: buggy ? sk.bug.start : sk.write.sol,
+    q: "Code review: would you approve this?\n\nAn AI assistant wrote this code. What it's supposed to do: " + goal + "\n\nRead it line by line and decide. Real developers do this every day.",
+    opts: ["Approve: it does the job", "Request changes: it has a bug"], a: buggy ? 1 : 0,
+    why: buggy ? "It has a bug. " + (sk.bug.hint || "") + " You'll fix it next." : "It works. Approving means you checked what it does, not who wrote it."};
 }
 function proveDue() {                     // learned skills still needing proof, not already proved today
   return window.PATH.filter(s => learned(s.id) && !mastered(s.id) && !skillState(s.id).proofs.includes(today()) &&
@@ -812,8 +841,18 @@ function composeSession() {
   dueReviews().slice(0, 5).forEach(r => add(r.st));
   const proves = proveDue().slice(0, 2).map(s => {          // added at the END, after the warm-up and new learning
     const n = skillState(s.id).proofs.length + (skillState(s.id).tries || 0), p = s.prove[n % s.prove.length];
-    mins += MIN.W; return {...p, pathSkill: s.id, prove: true, q: "Quick check: " + s.name + "\n\nYou learned this before. The card below shows what you need.\n\n" + p.q};
+    mins += MIN.W; return {...p, pathSkill: s.id, prove: true, q: "Quick check\n\nYou learned this before. Try it from memory first: remembering it yourself is what makes it stick. If you're stuck, the reminder card is folded below.\n\n" + p.q};
   });
+  const done = window.PATH.filter(s => mastered(s.id));
+  if (done.length >= 3) {                                   // mixed practice: no topic label, the skill is spotting which tool fits
+    const d = new Date().getDate();
+    [0, 1].forEach(j => {
+      const s = done[(d + j * 7) % done.length], p = s.prove[(d + j) % s.prove.length];
+      if (proves.some(x => x.pathSkill === s.id) || out.some(x => x.mixed && x.pathSkill === s.id)) return;
+      proves.unshift({...p, pathSkill: s.id, mixed: true, q: "Mixed practice\n\nNo topic label on purpose: in a real job (and an interview) nobody tells you which tool to use. Spotting it is part of the skill.\n\n" + p.q});
+      mins += MIN.W;
+    });
+  }
   // the next pieces of the current skill; if time is left and that skill finishes, carry on to the next one in its level
   const order = window.PATH.filter(x => levelOpen(x.level) && !learned(x.id));
   const plannedChunks = [];
@@ -847,6 +886,7 @@ function onSessionFinished(lesson) {
     const r = skillState(id); if (r.stage === stage) r.stage = stage + 1;
     if (r.stage >= 3 && !r.learnedOn) r.learnedOn = today();
   });
+  if (lesson.mock) S.path.mocks = (S.path.mocks || 0) + 1;
   if (lesson.coachSkill) { S.path.coachDone = [...new Set([...(S.path.coachDone || []), lesson.coachSkill])]; }
   save();
 }
@@ -911,9 +951,10 @@ function drawPath(main) {
   const nRev = Math.min(5, dueReviews().length), nProve = Math.min(2, proveDue().length);
   if (nRev) parts.append(el("li", null, `Warm-up: ${nRev} question${nRev > 1 ? "s" : ""} you're about to forget`));
   
-  const names = ["learn it step by step, try it, watch it", "finish it, write it, read code", "bug hunt"];
+  const names = ["learn it step by step, try it, watch it", "read code, put lines in order, finish it, write it", "code review and bug hunt"];
   s.chunks.forEach(([id, st]) => parts.append(el("li", null, `${SK(id).name}: ${names[st]}`)));
-  if (nProve) parts.append(el("li", null, `Then a quick check on ${nProve} skill${nProve > 1 ? "s" : ""} you learned before (with a reminder card)`));
+  if (nProve) parts.append(el("li", null, `Then a quick check on ${nProve} skill${nProve > 1 ? "s" : ""} you learned before (from memory first; the reminder is folded)`));
+  if (window.PATH.filter(x => mastered(x.id)).length >= 3) parts.append(el("li", null, "Mixed practice: 2 problems with no topic label"));
   if (!s.chunks.length && !nProve && !nRev) parts.append(el("li", null, "A coach-written lesson for the next advanced topic"));
   const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", () => startSession());
   card.append(parts, go);
@@ -956,7 +997,49 @@ function drawPath(main) {
   open.addEventListener("click", () => show("playground"));
   done.addEventListener("click", () => { S.path.builds[b.name] = today(); save(); confetti(); speak("You built " + b.name + ". That's real software you made yourself."); show("path"); });
   row.append(open, done); wb.append(row);
+  const pf = el("ul", "jobchecks");                        // make each build portfolio-ready
+  [["readme", "README: why you built it, how it works, trade-offs, what you'd do differently"], ["tests", "A few tests that prove it works"], ["github", "On GitHub (with a live demo if it's a website)"]].forEach(([k, t]) => {
+    const id = b.name + "#" + k; pf.append(checkItem(id, t));
+  });
+  wb.append(el("p", "note", "Make it portfolio-ready (hiring managers read the README before the code):"), pf);
   v.append(wb);
+  v.append(el("h2", "sec", "Get hired"), jobPanel());
+}
+function checkItem(id, text, auto) {
+  S.path.job = S.path.job || {};
+  const li = el("li"), cb = el("input"); cb.type = "checkbox"; cb.checked = auto != null ? auto : !!S.path.job[id];
+  if (auto != null) cb.disabled = true;
+  cb.addEventListener("change", () => { S.path.job[id] = cb.checked; save(); });
+  const lab = el("label"); lab.append(cb, document.createTextNode(" " + text)); li.append(lab); return li;
+}
+function jobPanel() {
+  const box = el("div", "jobpanel rise"), n = window.PATH.filter(s => learned(s.id)).length, mocks = S.path.mocks || 0;
+  const built = Object.keys(S.path.builds || {}).length;
+  box.append(el("p", null, "What gets self-taught developers hired in 2026: projects you designed yourself (with a README and tests), passing a short live-coding interview while explaining your thinking, and knowing people. This is your checklist."));
+  const mock = el("div", "mockcard");
+  mock.append(el("b", null, "Mock interview"), el("p", null, n >= 4 ? `Two problems, like a real junior interview: plan out loud first (here you type it), then code, then test. Done so far: ${mocks}.` : `Opens after you've learned 4 skills (you have ${n}). Real interviews use lists, dictionaries, strings and loops.`));
+  const go = el("button", "go", "Start a mock interview"); go.disabled = n < 4; go.addEventListener("click", startMock);
+  mock.append(go); box.append(mock);
+  const ul = el("ul", "jobchecks");
+  ul.append(checkItem("p3", `3 portfolio projects you designed yourself, not tutorial copies (weekly builds done: ${built})`, built >= 3 ? true : null));
+  ul.append(checkItem("mocks", `5 mock interviews (${mocks} of 5)`, mocks >= 5));
+  [["gh", "A GitHub profile with your projects pinned"], ["resume", "A one-page resume: projects first, one line each on what it does and what you used"],
+   ["oss", "One merged pull request to a real open-source project (worth more than five solo projects to many hiring managers)"],
+   ["people", "Meet developers: a meetup, a hackathon or an online community. Many junior jobs come through people, not the job board"],
+   ["apply", "Apply every week, and keep a list of where and when"]].forEach(([k, t]) => ul.append(checkItem("job#" + k, t)));
+  box.append(ul); return box;
+}
+function startMock() {
+  const pool = window.PATH.filter(s => learned(s.id)), k = S.path.mocks || 0;
+  const picks = [pool[(k * 3) % pool.length], pool[(k * 3 + Math.ceil(pool.length / 2)) % pool.length]].filter((x, i, a) => a.indexOf(x) === i);
+  const steps = [{k: "L", h: "How a junior coding interview goes", t: "They give you a small problem, usually lists, dictionaries, strings or loops. What they grade is how you think as much as the code.\n\n1. Say the problem back in your own words.\n2. Say what goes in and what comes out, and ask about anything unclear.\n3. Plan the steps in plain words before you type code.\n4. Write the code.\n5. Test it with an example, out loud.\n\nHere you'll type your plan instead of saying it. No reminder cards, like the real thing."}];
+  picks.forEach((s, i) => {
+    const p = s.prove[(k + i) % s.prove.length];
+    steps.push({k: "T", h: "Problem " + (i + 1) + ": plan first", kind: "Mock interview · plan", q: p.q + "\n\nBefore any code, write your plan as comments: what goes in, what comes out, and the steps in plain words. Then press Continue.", start: "# In:\n# Out:\n# Steps:\n# 1.\n# 2.\n# 3.\n"});
+    steps.push({...p, pathSkill: s.id, noCard: true, kind: "Mock interview · code", q: "Problem " + (i + 1) + ": now code it\n\n" + p.q + "\n\nWhen it passes, test it in your head with one example, the way you'd say it out loud to an interviewer."});
+  });
+  steps.push({k: "L", h: "How did that go?", t: "If you used a big hint, that's the topic to review before a real interview. In a real one, keep talking while you think. Silence is what hurts people, not small mistakes."});
+  openLesson({t: "Mock interview", key: "mock-" + today() + "-" + k, unit: "Get hired", color: "#38bdf8", steps, daily: true, mock: true});
 }
 
 /* the Remember card: only the lines of the skill's card that THIS question actually uses (or no card at all) */
@@ -964,7 +1047,7 @@ const CARD_TOKENS = /\/\/|\*\*|%|==|!=|>=|<=|\+=|\bf"|\b(?:and|or|not|for|while|
 const tokensOf = text => new Set((String(text || "").match(CARD_TOKENS) || []).map(t => t.replace(/^\./, "")));
 function rememberCard(st) {
   const c = st.pathSkill && window.PATH_TEACH && window.PATH_TEACH[st.pathSkill] ? window.PATH_TEACH[st.pathSkill].card : null;
-  if (!c) return null;                                    // regular lessons: no guessed card (it was often unrelated)
+  if (!c || st.noCard) return null;                       // regular lessons: no guessed card (it was often unrelated)
   const need = tokensOf([st.q, st.code, st.sol, st.start, (st.opts || []).join(" "), (st.a && st.a.join ? st.a.join(" ") : "")].join("\n"));
   const lines = c.code.split("\n"), keep = new Set();
   const indent = l => (l.match(/^\s*/) || [""])[0].length;
@@ -977,8 +1060,8 @@ function rememberCard(st) {
     }
   });
   if (!keep.size) return null;
-  const d = el("details", "remember"); d.open = true;
-  d.append(el("summary", null, "Remember: " + c.title), el("pre", null, lines.filter((_, i) => keep.has(i)).join("\n")));
+  const d = el("details", "remember"), fold = st.prove || st.mixed; d.open = !fold;
+  d.append(el("summary", null, fold ? "Stuck? Open the reminder" : "Remember: " + c.title), el("pre", null, lines.filter((_, i) => keep.has(i)).join("\n")));
   if (c.note) d.append(el("p", null, c.note));
   return d;
 }
