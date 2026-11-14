@@ -17,7 +17,10 @@ WEB = ROOT / "src" / "CodeSchool" / "web"
 def load_path():
     js = ("const window = {}; " + (WEB / "path.js").read_text(encoding="utf-8") +
           "\nconsole.log(JSON.stringify({path: window.PATH, coach: window.PATH_COACH, builds: window.WEEKLY_BUILDS}));")
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8")
+    with tempfile.TemporaryDirectory() as d:           # a file, not "node -e": Windows caps command-line length
+        f = Path(d, "dump_path.js")
+        f.write_text(js, encoding="utf-8")
+        r = subprocess.run(["node", str(f)], capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         sys.exit("path.js doesn't load: " + r.stderr[-800:])
     return json.loads(r.stdout)
