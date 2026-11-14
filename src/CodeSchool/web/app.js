@@ -205,14 +205,14 @@ function moveGlide() {                                       // the sidebar high
   if (first) { void g.offsetHeight; g.style.transition = ""; g.classList.add("ready"); }
 }
 window.addEventListener("resize", moveGlide);
-let view = "route";
+let view = "path";
 document.querySelectorAll(".nav").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
 function show(v) {
   view = v;
   document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   moveGlide();
   const main = $("main"); main.replaceChildren(); main.scrollTop = 0;
-  ({route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
+  ({path: drawPath, route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
   $("side-note").textContent = doneCount() ? `${doneCount()} lesson${doneCount() === 1 ? "" : "s"} done` : "";
 }
 function countUp(b) {
@@ -497,7 +497,7 @@ function showStep() {
   if (st.k === "P") {
     const opts = el("div", "opts"); text.append(opts);
     st.opts.map((_, i) => i).sort(() => Math.random() - 0.5).forEach(i => {
-      const b = el("button", "opt", st.opts[i]); b.dataset.i = i;
+      const b = el("button", "opt" + (st.predict ? " mono" : ""), st.opts[i]); b.dataset.i = i;
       b.addEventListener("click", () => { if (state !== "check") return; choice = i; opts.querySelectorAll(".opt").forEach(x => x.classList.toggle("pick", x === b)); $("act").disabled = false; });
       opts.append(b);
     });
@@ -527,8 +527,7 @@ function showStep() {
     let start = st.start;
     if (st.carry || start == null) start = (carryCode ? carryCode.replace(/\s*$/, "") + "\n\n" : "") + (st.start || "# " + st.q.split("\n")[0].replace(/^Milestone \d+\. /, "") + "\n");
     bench = workbench(start, null);
-    const hint = el("button", null, "Hint"), coachB = el("button", null, "Ask my coach");
-    hint.addEventListener("click", () => { bench.out.textContent = "Hint: " + (st.hint || "Break it into small pieces and try one line at a time."); });
+    const hint = hintLadder(st, bench), coachB = el("button", null, "Ask my coach");
     coachB.addEventListener("click", () => nudge(st, bench));
     bench.extra.append(hint, coachB);
     box.append(bench.node);
@@ -558,6 +557,10 @@ async function act() {
     $("act").disabled = true; $("act").textContent = "Checking…";
     const r = await call("run", {code: bench.ed.value, test: st.test}); paint(bench.out, r); S.ran++;
     ok = !!r.pass; why = r.err ? "Your code hit an error. Read its last line, fix that spot, then check again." : (r.fail || "");
+    if (st.prove && !st.proveDone) {                // prove-it: record it; a miss adds an easier version next
+      if (ok) st.proveDone = true;
+      if (onProveResult(st, ok, !!st.helped)) { why += " Next comes an easier version of this, then you'll try this one again."; ok = false; state = "next"; }
+    }
     if (ok) { carryCode = bench.ed.value; if (cur.project) { S.carry[cur.key] = carryCode; S.carry[cur.key + "#at"] = si + 1; } }
   }
   if (!wrongOnce) tried++;
@@ -572,7 +575,7 @@ async function act() {
   } else {
     run = 0; wrongOnce = true;
     if (st.k !== "W" && !cur.review && !cur.daily && !S.missed.some(m => JSON.stringify(m) === JSON.stringify(st))) { S.missed.push(st); S.missed = S.missed.slice(-40); }
-    if (st.k === "W") { foot("bad", "Not yet. Keep going.", " " + why, "Check again"); speak(pick(["Not yet, but you're close. Read the hint at the bottom.", "Almost there. Check the message at the bottom and try again.", "That's okay. Every developer hits this. Look at the hint and give it another go."])); }
+    if (st.k === "W") { foot("bad", "Not yet. Keep going.", " " + why, state === "next" ? "Continue" : "Check again"); speak(pick(["Not yet, but you're close. Read the hint at the bottom.", "Almost there. Check the message at the bottom and try again.", "That's okay. Every developer hits this. Look at the hint and give it another go."])); }
     else { const soft = pick(SOFT); foot("bad", soft, " " + why, "Continue"); state = "next"; speak(soft + " " + (st.why || "")); }
   }
   $("streak").textContent = run >= 2 ? run + " in a row" : "";
@@ -583,6 +586,7 @@ $("act").addEventListener("click", act);
 function finish() {
   const first = !S.done[cur.key] && !cur.review && !cur.extra && !cur.daily;
   if (!cur.review && !cur.extra && !cur.daily) S.done[cur.key] = today();
+  if (cur.session || cur.coachSkill) onSessionFinished(cur);
   if (cur.review) S.missed = S.missed.filter(m => !steps.includes(m));
   if (!S.days.includes(today())) S.days.push(today());
   if (cur.project) { delete S.carry[cur.key]; delete S.carry[cur.key + "#at"]; }
@@ -752,6 +756,186 @@ function tick() {
 function burst() { if (calm) return; const r = $("act").getBoundingClientRect(); spawn(r.left + r.width / 2, r.top, 26, 5, 4); }
 function confetti() { if (calm) return; for (let k = 0; k < 4; k++) setTimeout(() => spawn(innerWidth * (0.2 + 0.2 * k), innerHeight * 0.35, 40, 7, 6), k * 120); }
 
+/* Code School: "My path", the guided way to advanced (Claude, for Dilan; about an hour a day).
+   - Today's session: one button. Warm-up reviews, prove-it checks, then the next piece of the current skill,
+     sized to the time you set.
+   - Each skill is taught over three chunks, fading the help: watch + fill + finish it, then write it + predict,
+     then a bug hunt. After that it must be PROVED: two fresh problems passed on different days.
+   - Missing a prove-it problem adds an easier version right after it, then the same problem again.
+   - Hint ladder on every coding step: nudge, idea, first line, walkthrough. On a prove-it step, using
+     the last two rungs means that pass doesn't count as proof (it's still good practice).
+   - Skill map with an honest timeline, and a weekly build.
+   Uses app.js's globals (S, el, openLesson, call, rich, steps, si, cur, save, today...). */
+const MIN = {L: 1.5, V: 2.5, P: 1.5, F: 1.5, O: 3, W: 6};          // rough minutes per step, for sizing sessions
+const SK = id => window.PATH.find(s => s.id === id);
+function skillState(id) {
+  const r = (S.path = S.path || {skills: {}, builds: {}, minutes: 60}).skills[id] || {stage: 0, proofs: []};
+  S.path.skills[id] = r; return r;
+}
+const mastered = id => new Set(skillState(id).proofs).size >= 2;
+const learned = id => skillState(id).stage >= 3;
+const levelOpen = n => n === 1 || window.PATH.filter(s => s.level === n - 1).every(s => learned(s.id));
+function currentSkill() { return window.PATH.find(s => levelOpen(s.level) && !learned(s.id)) || null; }
+function chunkSteps(sk, stage) {
+  const tag = st => ({...st, pathSkill: sk.id, chunk: stage});
+  if (stage === 0) return [{k: "L", h: sk.name, t: sk.concept}, sk.worked, sk.fill, sk.faded].map(tag);
+  if (stage === 1) return [sk.write, ...sk.predict].map(tag);
+  return [sk.bug].map(tag);
+}
+function proveDue() {                     // learned skills still needing proof, not already proved today
+  return window.PATH.filter(s => learned(s.id) && !mastered(s.id) && !skillState(s.id).proofs.includes(today()) &&
+    skillState(s.id).learnedOn !== today());
+}
+function composeSession() {
+  const budget = (S.path && S.path.minutes) || 60, out = [];
+  let mins = 0;
+  const add = st => { out.push(st); mins += MIN[st.k] || 2; };
+  dueReviews().slice(0, 5).forEach(r => add(r.st));
+  proveDue().slice(0, 2).forEach(s => {
+    const n = skillState(s.id).proofs.length + (skillState(s.id).tries || 0);
+    add({...s.prove[n % s.prove.length], pathSkill: s.id, prove: true, q: "Prove it · " + s.name + "\n\n" + s.prove[n % s.prove.length].q});
+  });
+  // the next pieces of the current skill; if time is left and that skill finishes, carry on to the next one in its level
+  const order = window.PATH.filter(x => levelOpen(x.level) && !learned(x.id));
+  const plannedChunks = [];
+  for (const sk of order) {
+    for (let stage = skillState(sk.id).stage; stage < 3 && mins < budget - 6; stage++) {
+      chunkSteps(sk, stage).forEach(add); plannedChunks.push([sk.id, stage]);
+    }
+    if (mins >= budget - 6) break;
+  }
+  return {steps: out, chunks: plannedChunks, minutes: Math.round(mins), coach: !currentSkill()};
+}
+function startSession() {
+  const s = composeSession();
+  if (s.coach && !s.steps.length) return startCoachSkill();
+  if (!s.steps.length) return startCoachSkill();
+  openLesson({t: "Today's session", key: "session-" + today(), unit: "My path", color: "#ff5a4e", steps: s.steps, daily: true, session: s.chunks});
+}
+function startCoachSkill() {
+  const next = window.PATH_COACH.find(c => !(S.path.coachDone || []).includes(c.id));
+  if (!next) return openLesson({t: "Free practice", key: "free-" + today(), unit: "My path", color: "#a78bfa", gen: true});
+  openLesson({t: next.name, key: "coach-" + next.id, unit: "My path · Level " + next.level, color: "#a78bfa", gen: true, coachSkill: next.id});
+}
+/* called by app.js */
+function onSessionFinished(lesson) {
+  (lesson.session || []).forEach(([id, stage]) => {
+    const r = skillState(id); if (r.stage === stage) r.stage = stage + 1;
+    if (r.stage >= 3 && !r.learnedOn) r.learnedOn = today();
+  });
+  if (lesson.coachSkill) { S.path.coachDone = [...new Set([...(S.path.coachDone || []), lesson.coachSkill])]; }
+  save();
+}
+function onProveResult(st, ok, helped) {
+  const r = skillState(st.pathSkill);
+  if (ok && !helped) { if (!r.proofs.includes(today())) r.proofs.push(today()); }
+  else if (!ok) r.tries = (r.tries || 0) + 1;
+  save();
+  if (!ok && !st.easierAdded) {                 // missed: an easier version next, then this one again
+    st.easierAdded = true;
+    const sk = SK(st.pathSkill);
+    steps.splice(si + 1, 0, {...sk.faded, pathSkill: sk.id, q: "Easier version first · " + sk.faded.q}, {...st, easierAdded: true, q: st.q});
+    return true;
+  }
+  return false;
+}
+function hintLadder(st, bench) {
+  const sk = st.pathSkill ? SK(st.pathSkill) : null;
+  const rungs = [
+    ["Nudge", () => st.hint || "Break it into small pieces. What's the very first thing your code has to do?"],
+    ["The idea", () => sk ? sk.concept : (st.hint || "") + " Think about which tool from this lesson fits."],
+    ["First line", () => st.sol ? "Start like this:\n" + st.sol.split("\n").find(l => l.trim() && !l.trim().startsWith("#")) : null],
+    ["Walkthrough", () => st.sol ? "__walk__" : null],
+  ].filter(([, f]) => f() !== null);
+  let level = 0;
+  const b = el("button", null, `Hint (1 of ${rungs.length})`);
+  b.addEventListener("click", async () => {
+    const [name, get] = rungs[level], v = get();
+    if (level >= 2) st.helped = true;            // big help: a prove-it pass won't count as proof
+    if (v === "__walk__") {
+      bench.out.textContent = "Walkthrough: your coach is explaining it step by step…";
+      const r = await call("coach", {messages: [{role: "user", content: `(Coach notes: you are Dilan's coding coach. Explain in plain words, step by step, how to solve this exercise, line by line, like a patient tutor. Show the finished code at the end. Under 200 words.)\n\nExercise: ${st.q}\n\nA correct solution:\n${st.sol}\n\nDilan's code so far:\n${bench.ed.value}`}]});
+      bench.out.textContent = "Walkthrough:\n" + (r.text || ("The coach couldn't answer right now, so here is the solution:\n" + st.sol));
+    } else bench.out.textContent = `${name}: ${v}`;
+    level = Math.min(level + 1, rungs.length - 1);
+    b.textContent = level === rungs.length - 1 && name === rungs[rungs.length - 1][0] ? "Walkthrough again" : `Next hint (${level + 1} of ${rungs.length})`;
+  });
+  return b;
+}
+
+/* ---- the screen ---- */
+function weekKey() { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); }
+function timeline() {
+  const recent = S.days.filter(d => d >= addDays(-14)).length, perWeek = Math.max(3, Math.min(7, recent ? recent / 2 : 6));
+  const sessionsLeft = lvl => window.PATH.filter(s => s.level <= lvl && !learned(s.id)).length * 1.5 +
+    window.PATH.filter(s => s.level <= lvl && !mastered(s.id)).length * 0.5 + (lvl >= 4 ? window.PATH_COACH.filter(c => c.level <= lvl && !(S.path.coachDone || []).includes(c.id)).length * 3 : 0);
+  return window.PATH_LEVELS.map(L => {
+    const left = sessionsLeft(L.n), days = Math.ceil(left / perWeek * 7);
+    const d = new Date(); d.setDate(d.getDate() + days);
+    return {...L, left, when: left <= 0 ? "done" : d.toLocaleDateString(undefined, {month: "short", day: "numeric"})};
+  });
+}
+function drawPath(main) {
+  const v = el("div", "view"); main.append(v); skillState("print");
+  v.append(el("h1", null, "Your path to advanced"));
+  v.append(el("p", "lead", "One session a day, about an hour. It mixes what you're about to forget, proof of what you've learned, and the next new skill, with less help each time."));
+  const s = composeSession(), card = el("div", "session rise");
+  const cur = currentSkill();
+  card.append(el("small", null, "Today's session · about " + Math.max(10, s.minutes) + " minutes"),
+    el("h2", null, cur ? cur.name : "Level 4 and up: your coach writes these"));
+  const parts = el("ul", "parts");
+  const nRev = Math.min(5, dueReviews().length), nProve = Math.min(2, proveDue().length);
+  if (nRev) parts.append(el("li", null, `Warm-up: ${nRev} question${nRev > 1 ? "s" : ""} you're about to forget`));
+  if (nProve) parts.append(el("li", null, `Prove it: ${nProve} fresh problem${nProve > 1 ? "s" : ""} on skills you learned`));
+  const names = ["watch it, fill it, finish it", "write it yourself + read code", "bug hunt"];
+  s.chunks.forEach(([id, st]) => parts.append(el("li", null, `${SK(id).name}: ${names[st]}`)));
+  if (!s.chunks.length && !nProve && !nRev) parts.append(el("li", null, "A coach-written lesson for the next advanced topic"));
+  const go = el("button", "go", S.days.includes(today()) ? "Do another session" : "Start today's session"); go.addEventListener("click", startSession);
+  card.append(parts, go);
+  const mins = el("select"); mins.setAttribute("aria-label", "Minutes a day");
+  [30, 45, 60, 90, 120].forEach(m => { const o = el("option", null, m + " min a day"); o.value = m; o.selected = m === (S.path.minutes || 60); mins.append(o); });
+  mins.addEventListener("change", () => { S.path.minutes = +mins.value; save(); show("path"); });
+  card.append(mins);
+  v.append(card);
+
+  const tl = el("div", "levels rise");
+  timeline().forEach(L => {
+    const row = el("section", "level"), head = el("div", "lhead");
+    head.append(el("b", null, `Level ${L.n} · ${L.name}`), el("span", null, L.sub), el("em", null, L.when === "done" ? "Done" : `on pace for ${L.when}`));
+    row.append(head);
+    const nodes = el("div", "nodes");
+    const items = L.coach ? window.PATH_COACH.filter(c => c.level === L.n) : window.PATH.filter(s => s.level === L.n);
+    items.forEach(it => {
+      let cls, label;
+      if (L.coach) { const d = (S.path.coachDone || []).includes(it.id); cls = d ? "mastered" : levelOpen(L.n) ? "next" : "locked"; label = d ? "Done" : levelOpen(L.n) ? "Coach-written" : "Locked"; }
+      else {
+        const r = skillState(it.id);
+        if (mastered(it.id)) { cls = "mastered"; label = "Mastered"; }
+        else if (learned(it.id)) { cls = "proving"; label = `Prove it: ${new Set(r.proofs).size} of 2`; }
+        else if (r.stage > 0 || it === currentSkill()) { cls = "learning"; label = `Learning: ${r.stage} of 3`; }
+        else { cls = levelOpen(L.n) ? "next" : "locked"; label = levelOpen(L.n) ? "Up next" : "Locked"; }
+      }
+      const n = el("div", "sknode " + cls); n.append(el("b", null, it.name), el("small", null, label));
+      nodes.append(n);
+    });
+    row.append(nodes); tl.append(row);
+  });
+  v.append(el("h2", "sec", "Your skill map"), tl);
+  v.append(el("p", "note", "\"On pace for\" uses how often you've actually practised in the last two weeks (or 6 days a week to start). Mastered means you solved two fresh problems on different days without the big hints."));
+
+  const lvl = Math.max(1, ...window.PATH.filter(s => learned(s.id)).map(s => s.level));
+  const builds = window.WEEKLY_BUILDS.filter(b => b.level <= lvl + 1), b = builds.find(x => !S.path.builds[x.name]) || builds[builds.length - 1];
+  const wb = el("div", "weekly rise");
+  wb.append(el("small", null, "This week's build"), el("h2", null, b.name), el("p", null, b.brief));
+  const row = el("div", "row"), open = el("button", "go", "Build it in the playground"), done = el("button", null, S.path.builds[b.name] ? "Built ✓" : "I built it");
+  open.addEventListener("click", () => show("playground"));
+  done.addEventListener("click", () => { S.path.builds[b.name] = today(); save(); confetti(); speak("You built " + b.name + ". That's real software you made yourself."); show("path"); });
+  row.append(open, done); wb.append(row);
+  v.append(wb);
+}
+
+/* a read-only window for automated tests (tools/ and the build check) */
+window.__cs = {get steps() { return steps; }, get si() { return si; }, get bench() { return bench; }, get S() { return S; }, closeLesson, show};
 /* ---------- start ---------- */
-call("load").then(v => { if (v && v.done) Object.assign(S, v); loadVoices(); show("route"); });
+call("load").then(v => { if (v && v.done) Object.assign(S, v); loadVoices(); show("path"); });
 }

@@ -29,6 +29,8 @@ jobs:
 
       - name: Check every lesson exercise with a correct answer, and the runner
         run: python tools/check_lessons.py
+      - name: Check the path to advanced (every exercise, drill and example proven)
+        run: python tools/check_path.py
 
       - name: Check the natural voices (downloads, unpacks with Windows tar, and really speaks with the app's settings)
         shell: pwsh
