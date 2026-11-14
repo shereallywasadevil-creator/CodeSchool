@@ -92,7 +92,7 @@ public sealed class Engine
 
     // --------------------------------------------------------------- requests ----
 
-    public async Task<object> HandleAsync(string type, JsonElement payload)
+    public async Task<object> HandleAsync(string type, JsonElement payload, Action<string>? partial = null)
     {
         string Str(string key) => payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         switch (type)
@@ -114,8 +114,7 @@ public sealed class Engine
                     msgs = JsonNode.Parse(m.GetRawText())!.AsArray();
                 else
                     msgs = new JsonArray { new JsonObject { ["role"] = "user", ["content"] = Str("prompt") } };
-                var r = await Coach(msgs, false);
-                return r;
+                return await Coach(msgs, false, partial);
             }
             case "lesson":
                 return await MakeLesson(Str("prompt"));
@@ -201,26 +200,59 @@ public sealed class Engine
     }
 
     /// <summary>One answer from the Local AI. Returns {text} or {json} or {error}.</summary>
-    public static async Task<JsonObject> Coach(JsonArray messages, bool wantJson)
+    public static async Task<JsonObject> Coach(JsonArray messages, bool wantJson, Action<string>? partial = null)
     {
         string? model = await PickModel();
         if (model == null)
             return new JsonObject { ["error"] = "Your coach needs Ollama running. Open Local AI (or Ollama), then try again." };
         var body = new JsonObject
         {
-            ["model"] = model, ["stream"] = false, ["keep_alive"] = "5m",
+            ["model"] = model, ["stream"] = !wantJson, ["keep_alive"] = "10m",
+            ["think"] = false,               // thinking models (qwen3.5) otherwise think silently for minutes first
             ["messages"] = JsonNode.Parse(messages.ToJsonString()),
             ["options"] = new JsonObject { ["temperature"] = wantJson ? 0.4 : 0.7, ["num_ctx"] = 8192 },
         };
         if (wantJson) body["format"] = "json";
         string text;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(wantJson ? 240 : 120));
         try
         {
-            using var resp = await Http.PostAsync(Ollama + "/api/chat", new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"));
-            string raw = await resp.Content.ReadAsStringAsync();
+            var req = new HttpRequestMessage(HttpMethod.Post, Ollama + "/api/chat")
+            { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             if (!resp.IsSuccessStatusCode)
                 return new JsonObject { ["error"] = "Your coach had a problem (" + (int)resp.StatusCode + "). Try again." };
-            text = (string?)JsonNode.Parse(raw)?["message"]?["content"] ?? "";
+            if (wantJson)
+            {
+                string raw = await resp.Content.ReadAsStringAsync(cts.Token);
+                text = (string?)JsonNode.Parse(raw)?["message"]?["content"] ?? "";
+            }
+            else
+            {
+                // Streamed: one JSON object per line, each with a piece of the answer.
+                var sb = new StringBuilder();
+                using var stream = await resp.Content.ReadAsStreamAsync(cts.Token);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                DateTime lastSent = DateTime.MinValue;
+                string? line;
+                while ((line = await reader.ReadLineAsync(cts.Token)) != null)
+                {
+                    if (line.Length == 0) continue;
+                    var chunk = JsonNode.Parse(line);
+                    sb.Append((string?)chunk?["message"]?["content"] ?? "");
+                    if (partial != null && (DateTime.UtcNow - lastSent).TotalMilliseconds > 120)
+                    {
+                        partial(sb.ToString());
+                        lastSent = DateTime.UtcNow;
+                    }
+                    if ((bool?)chunk?["done"] == true) break;
+                }
+                text = sb.ToString();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return new JsonObject { ["error"] = "Your coach is taking too long. Your Local AI may be busy with its own lessons; try again in a minute." };
         }
         catch (Exception ex)
         {

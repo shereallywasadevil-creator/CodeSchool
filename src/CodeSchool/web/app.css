@@ -81,6 +81,7 @@ main{overflow-y:auto;height:100%}
 .step.wide{max-width:1240px;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr);gap:28px;align-items:start}
 .kind{color:var(--redink);font-weight:700;font-size:14px;margin-bottom:8px}
 .step h2{margin-bottom:16px}
+.todo{margin:14px 0 4px;padding:12px 14px;border-radius:10px;background:var(--panel);border-left:4px solid var(--red);font-size:15px;color:var(--ink);white-space:pre-line}
 .step .text p{font-size:17px;max-width:64ch}
 .opts{display:grid;gap:10px;margin-top:16px}
 .opt{text-align:left;font-weight:500;padding:12px 16px;min-height:54px;font-size:16px;background:var(--panel)}

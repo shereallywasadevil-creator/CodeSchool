@@ -66,7 +66,16 @@ public partial class MainWindow : Window
             id = root.GetProperty("id").GetString() ?? "";
             string type = root.GetProperty("type").GetString() ?? "";
             var payload = root.TryGetProperty("payload", out var p) ? p.Clone() : default;
-            result = await _engine.HandleAsync(type, payload);
+            string myId = id;
+            result = await _engine.HandleAsync(type, payload, text =>
+            {
+                // Pieces of a streamed coach answer, sent as they arrive (the page shows them live).
+                Dispatcher.InvokeAsync(() =>
+                {
+                    try { Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new Dictionary<string, object?> { ["id"] = myId, ["partial"] = text })); }
+                    catch { }
+                });
+            });
         }
         catch (Exception ex)
         {

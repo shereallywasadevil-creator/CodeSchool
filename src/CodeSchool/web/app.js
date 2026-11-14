@@ -7,9 +7,14 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 /* ---------- bridge to the app engine (falls back to a local dev server when opened in a browser) ---------- */
 const host = window.chrome && window.chrome.webview;
 const pending = {}; let seq = 0;
-if (host) host.addEventListener("message", e => { const d = e.data || {}; const f = pending[d.id]; if (f) { delete pending[d.id]; f(d.result || {}); } });
-function call(type, payload) {
-  if (host) return new Promise(res => { const id = String(++seq); pending[id] = res; host.postMessage({id, type, payload: payload || {}}); });
+const partials = {};
+if (host) host.addEventListener("message", e => {
+  const d = e.data || {};
+  if (d.partial != null) { if (partials[d.id]) partials[d.id](d.partial); return; }   // a streamed piece of a coach answer
+  const f = pending[d.id]; if (f) { delete pending[d.id]; delete partials[d.id]; f(d.result || {}); }
+});
+function call(type, payload, onPartial) {
+  if (host) return new Promise(res => { const id = String(++seq); pending[id] = res; if (onPartial) partials[id] = onPartial; host.postMessage({id, type, payload: payload || {}}); });
   return fetch("/api/" + type, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload || {})})
     .then(r => r.json()).catch(() => ({error: "The engine isn't running."}));
 }
@@ -152,7 +157,7 @@ function drawCoach(main) {
     const done = LESSONS.filter(l => S.done[l.key]).map(l => l.t).slice(-10).join(", ") || "none yet";
     talk.push({role: "user", content: `(Coach notes: you are Dilan's coding coach. He started from zero and wants to work in tech. Lessons done: ${done}. Be warm, encouraging and concrete. Explain simply with examples; check understanding with a question when it helps; don't just hand over full solutions to exercises.)\n\n${q}`});
     const box = sayBox("Thinking…"); chat.append(box); main.scrollTop = 1e6;
-    const r = await call("coach", {messages: talk.slice(-10)});
+    const r = await call("coach", {messages: talk.slice(-10)}, t => { box.replaceChildren(); rich(box, t); main.scrollTop = 1e6; });
     box.replaceChildren();
     if (r.error) { talk.pop(); rich(box, r.error); } else { rich(box, r.text); talk.push({role: "assistant", content: r.text}); }
     main.scrollTop = 1e6;
@@ -203,7 +208,7 @@ async function visualize(box, code) {
   const viz = el("div", "viz"), vcode = el("div", "vcode"), side = el("div", "vside");
   const src = code.split("\n");
   const rows = src.map((t, i) => { const d = el("div", "vl"); d.append(el("span", "n", String(i + 1)), el("span", "a", ""), el("span", null, t || " ")); vcode.append(d); return d; });
-  const vars = el("div", "vbox"), out = el("div", "vbox"); vars.append(el("h4", null, "Variables")); out.append(el("h4", null, "Output"));
+  const vars = el("div", "vbox"), out = el("div", "vbox"); vars.append(el("h4", null, "Variables (what each name holds right now)")); out.append(el("h4", null, "Output (what has been printed)"));
   const vlist = el("div"), vout = el("div", "vout"); vars.append(vlist); out.append(vout); side.append(vars, out);
   const ctl = el("div", "vctl"), back = el("button", null, "◀ Back"), next = el("button", "go", "Next ▶"), play = el("button", null, "Play"), slide = el("input"), where = el("span", "where");
   slide.type = "range"; slide.min = 0; slide.max = steps.length - 1; slide.value = 0; slide.setAttribute("aria-label", "Step");
@@ -244,12 +249,16 @@ const SOFT = ["Not quite, and that's how learning works.", "Close. Here's the id
 const pick = a => a[Math.floor(Math.random() * a.length)];
 let cur = null, steps = [], si = 0, state = "", run = 0, firstTry = 0, tried = 0, choice = null, wrongOnce = false, bench = null, carryCode = "";
 
+function introSteps() {
+  return [{k: "L", h: "How lessons work", t: "Every lesson is a few small steps, one screen at a time. The bar at the top shows how far along you are.\n\nYou'll see five kinds of steps:\n\n`Read`: a short idea, then Continue.\n\n`Watch the code run`: press Next to step through code and see what it does.\n\n`Quick question` and `Fill in the blank`: answer, then Check.\n\n`Your turn: write code`: type real Python, Run it to try, Check when it's right.\n\nGetting things wrong is part of it. Wrong answers come back later for practice, so nothing is wasted. Ready?"}];
+}
 async function openLesson(lesson) {
   cur = lesson; $("player").classList.add("on"); $("ptitle").textContent = (lesson.project ? "Project · " : lesson.unit + " · ") + lesson.t;
   run = 0; firstTry = 0; tried = 0; si = 0; $("streak").textContent = "";
   carryCode = (lesson.project && S.carry[lesson.key]) || "";
   if (lesson.gen && !S.gen[lesson.key]) { await buildLesson(lesson); if (!S.gen[lesson.key]) return; }
   steps = lesson.review || lesson.extra ? lesson.steps : lesson.gen ? S.gen[lesson.key] : lesson.steps;
+  if (!S.seenIntro && !lesson.review) { steps = [...introSteps(), ...steps]; S.seenIntro = true; save(); }
   if (lesson.project && carryCode) {                       // resume a project at the first milestone not yet passed
     const k = S.carry[lesson.key + "#at"] || 0; si = Math.min(k, steps.length - 1);
   }
@@ -267,7 +276,15 @@ function foot(kind, title, sub, label) {
   const m = $("msg"); m.replaceChildren(); if (title) m.append(el("b", null, title)); if (sub) m.append(el("span", null, sub));
   $("act").textContent = label; $("act").disabled = false;
 }
-const KIND = {L: "New idea", V: "Watch it run", P: "Quick check", F: "Fill the blank", W: "Write real code", O: "Code puzzle"};
+const KIND = {L: "Read", V: "Watch the code run", P: "Quick question", F: "Fill in the blank", W: "Your turn: write code", O: "Puzzle: put the lines in order"};
+const TODO = {
+  L: "Read this, then press Continue at the bottom. Not clear? Press \"Explain it another way\".",
+  V: "Press Next ▶ to run one line at a time. The yellow arrow is the line about to run. Variables shows what each name holds right now. Output shows what has been printed.",
+  P: "Pick one answer, then press Check at the bottom.",
+  F: "Type the missing word or symbol in the box, then press Check.",
+  W: "1. Type your code in the dark box.  2. Press Run to try it and see what it prints.  3. When it looks right, press Check at the bottom. Stuck? Press Hint.",
+  O: "Click the pieces on the left in the order they should run. Click a piece on the right to send it back. Then press Check.",
+};
 
 /* ---------- daily review: questions come back after 1, 3, 7, 21 and 60 days (spaced retrieval) ---------- */
 const GAPS = [1, 3, 7, 21, 60];
@@ -289,8 +306,9 @@ function showStep() {
   const box = el("div", "step" + (wide ? " wide" : "")); stage.append(box);
   const text = el("div", "text"); box.append(text);
   text.append(el("div", "kind", (cur.project && st.k === "W" ? "Milestone · " : "") + KIND[st.k]));
+  const todo = el("div", "todo", TODO[st.k]);
   if (st.k === "L" || st.k === "V") {
-    text.append(el("h2", null, st.h)); rich(text, st.t);
+    text.append(el("h2", null, st.h)); rich(text, st.t); text.append(todo);
     if (st.k === "L" && st.code) {
       text.append(el("pre", null, st.code));
       const tb = el("button", null, "Watch it run"), vb = el("div"); tb.addEventListener("click", () => visualize(vb, st.code)); text.append(tb, vb);
@@ -302,6 +320,7 @@ function showStep() {
   }
   text.append(el("h2", null, st.q.split("\n\n")[0]));
   rich(text, st.q.split("\n\n").slice(1).join("\n\n"));
+  text.append(todo);
   if (st.code && st.k !== "W") text.append(el("pre", null, st.code));
   if (st.k === "P") {
     const opts = el("div", "opts"); text.append(opts);
@@ -341,7 +360,7 @@ function showStep() {
     coachB.addEventListener("click", () => nudge(st, bench));
     bench.extra.append(hint, coachB);
     box.append(bench.node);
-    text.append(el("p", "note", "Run tries your code. Check (or Ctrl+Enter) tests it."));
+
     state = "check"; foot("", "", "", "Check"); setTimeout(() => bench.focus(), 60);
   }
 }
@@ -432,12 +451,12 @@ function startReview() {
 /* ---------- the coach inside lessons ---------- */
 async function explainAgain(st, box) {
   box.className = "explain"; box.replaceChildren(el("p", "note", "Your coach is thinking of another way to explain it…"));
-  const r = await call("coach", {prompt: `Explain this idea to a total beginner in a different way than before: use a new everyday analogy, then a tiny code example with what it prints. Keep it under 150 words.\n\nThe idea: ${st.h}\n${st.t}\n${st.code || ""}`});
+  const r = await call("coach", {prompt: `Explain this idea to a total beginner in a different way than before: use a new everyday analogy, then a tiny code example with what it prints. Keep it under 150 words.\n\nThe idea: ${st.h}\n${st.t}\n${st.code || ""}`}, t => { box.replaceChildren(); rich(box, t); });
   box.replaceChildren(); rich(box, r.error || r.text);
 }
 async function nudge(st, b) {
-  b.out.textContent = "Your coach is looking at your code…";
-  const r = await call("coach", {prompt: `You're a kind coding coach for a beginner. The exercise: ${st.q}\n\nHis code:\n${b.ed.value}\n\nWhat happened when he ran it:\n${b.out.textContent}\n\nGive ONE helpful nudge in 2-3 sentences that gets him unstuck. Point at the line or idea to look at. Don't write the full solution.`});
+  b.out.textContent = "Your coach is looking at your code… (the first answer can take up to a minute while your Local AI wakes up)";
+  const r = await call("coach", {prompt: `You're a kind coding coach for a beginner. The exercise: ${st.q}\n\nHis code:\n${b.ed.value}\n\nWhat happened when he ran it:\n${b.out.textContent}\n\nGive ONE helpful nudge in 2-3 sentences that gets him unstuck. Point at the line or idea to look at. Don't write the full solution.`}, t => { b.out.textContent = t; });
   b.out.textContent = r.error || r.text;
 }
 
