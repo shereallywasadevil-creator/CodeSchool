@@ -48,7 +48,7 @@ jobs:
           $v = "en_US-amy-medium"; $u = "$($cat.base)/en/en_US/amy/medium/$v.onnx"
           Invoke-WebRequest $u -OutFile "$v.onnx"; Invoke-WebRequest "$u.json" -OutFile "$v.onnx.json"
           # same fix the app makes (Voices.FitConfig): drop two-letter sounds the Windows engine can't read
-          python -c "import json,sys; p=sys.argv[1]; c=json.load(open(p,encoding='utf-8')); m=c['phoneme_id_map']; x=[k for k in m if len(k)!=1]; print('dropping', len(x), 'entries:', ' '.join(x)); [m.pop(k) for k in x]; json.dump(c,open(p,'w',encoding='utf-8'),ensure_ascii=False)" "$v.onnx.json"
+          python -X utf8 -c "import json,sys; p=sys.argv[1]; c=json.load(open(p,encoding='utf-8')); m=c['phoneme_id_map']; x=[k for k in m if len(k)!=1]; print('dropping', len(x), 'entries:', ' '.join(x)); [m.pop(k) for k in x]; json.dump(c,open(p,'w',encoding='utf-8'),ensure_ascii=False)" "$v.onnx.json"
           Push-Location $exe.DirectoryName
           "Nice work, Dilan. That passed every check." | & $exe.FullName --model "$env:GITHUB_WORKSPACE/$v.onnx" --output_file "$env:GITHUB_WORKSPACE/say.wav" --length_scale 1.00 --sentence_silence 0.25
           Pop-Location
