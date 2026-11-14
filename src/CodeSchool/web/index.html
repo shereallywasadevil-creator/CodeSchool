@@ -9,21 +9,32 @@
 <body>
 <nav class="side" aria-label="Code School">
   <div class="brand"><svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#ff5a4e"/><path d="M9 23 L16 16 L23 9" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="9" cy="23" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="23" cy="9" r="3.4" fill="#fff"/></svg><span>Code School</span></div>
-  <button class="nav on" data-view="route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 19 L12 12 L19 5"/><circle cx="5" cy="19" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/></svg><span>My route</span></button>
-  <button class="nav" data-view="projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg><span>Projects</span></button>
-  <button class="nav" data-view="practice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 3-6.3"/><path d="M4 4v5h5"/></svg><span>Practice</span></button>
-  <button class="nav" data-view="playground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7 3 12l5 5M16 7l5 5-5 5"/></svg><span>Playground</span></button>
-  <button class="nav" data-view="coach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Coach</span></button>
+  <button class="nav on" data-view="route" style="--i:1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 19 L12 12 L19 5"/><circle cx="5" cy="19" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/></svg><span>My route</span></button>
+  <button class="nav" data-view="projects" style="--i:2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg><span>Projects</span></button>
+  <button class="nav" data-view="practice" style="--i:3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 3-6.3"/><path d="M4 4v5h5"/></svg><span>Practice</span></button>
+  <button class="nav" data-view="playground" style="--i:4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7 3 12l5 5M16 7l5 5-5 5"/></svg><span>Playground</span></button>
+  <button class="nav" data-view="coach" style="--i:5"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Coach</span></button>
+  <div class="glide" id="glide" aria-hidden="true"></div>
   <div class="grow"></div>
-  <div class="voice" id="voicebox"><span class="wave" aria-hidden="true"><i></i><i></i><i></i></span><span>Voice coach</span><button id="voice-toggle" aria-pressed="true">On</button></div>
+  <div class="voice" id="voicebox"><span class="wave" aria-hidden="true"><i></i><i></i><i></i></span><button class="vpick" id="voice-pick" title="Choose a voice"><b>Voice coach</b><small id="voice-name">…</small></button><button id="voice-toggle" aria-pressed="true">On</button></div>
   <small id="side-note"></small>
 </nav>
 <main id="main"></main>
 <div class="player" id="player" role="dialog" aria-modal="true" aria-label="Lesson">
-  <div class="ptop"><button class="ghost" id="close" aria-label="Back">✕</button><span class="title" id="ptitle"></span><div class="prog"><i id="bar"></i></div><span class="streak" id="streak"></span></div>
+  <div class="ptop"><button class="ghost" id="close" aria-label="Back">✕</button><span class="title" id="ptitle"></span><div class="prog"><i id="bar"></i></div><span class="streak" id="streak"></span><button class="askbtn" id="askbtn" aria-expanded="false" aria-controls="askpane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M10 9.5a2 2 0 1 1 2.6 1.9c-.4.2-.6.5-.6.9v.3M12 14.6v.1"/></svg><span>Ask a question</span></button></div>
   <div class="stage" id="stage"></div>
+  <aside class="askpane" id="askpane" aria-label="Ask a question" inert>
+    <div class="askhead"><div><h2>Ask about this step</h2><small>Your coach can see this step and your code.</small></div><button class="ghost" id="ask-close" aria-label="Close questions">✕</button></div>
+    <div class="asklog" id="ask-log" aria-live="polite"></div>
+    <div class="chips" id="ask-chips"><button>Explain this more simply</button><button>Give me another example</button><button>Why does it work this way?</button><button>Where would I use this at a job?</button></div>
+    <form class="askform" id="ask-form"><textarea id="ask-q" rows="2" aria-label="Your question" placeholder="Type your question… (Enter to send)"></textarea><button class="go" id="ask-send">Ask</button></form>
+  </aside>
   <div class="foot" id="foot"><div><div class="msg" id="msg"></div><button class="go" id="act">Continue</button></div></div>
 </div>
+<dialog class="voicepick" id="voicepick" aria-labelledby="vp-title">
+  <div class="vphead"><div><h2 id="vp-title">Choose your coach's voice</h2><small>Pick the one you'd like to hear cheering you on.</small></div><button class="ghost" id="vp-close" aria-label="Close">✕</button></div>
+  <div class="vpbody" id="vp-body"></div>
+</dialog>
 <canvas id="fx"></canvas>
 <script src="lessons.js"></script>
 <script src="app.js"></script>

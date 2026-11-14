@@ -50,36 +50,151 @@ function rich(box, text) {
   });
 }
 
-/* ---------- voice coach: speaks praise and encouragement, and reads steps aloud on request ---------- */
-const VOICE = {voice: null};
-function pickVoice() {
-  if (!window.speechSynthesis) return;
-  const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
-  const score = v => (/natural|neural|online/i.test(v.name) ? 20 : 0) + (/aria|jenny|ava|emma|andrew|brian|guy|michelle|sonia|libby|ryan/i.test(v.name) ? 6 : 0) + (/en-US/i.test(v.lang) ? 2 : 0) + (/zira|david|mark/i.test(v.name) ? -3 : 0);
-  VOICE.voice = vs.sort((a, b) => score(b) - score(a))[0] || null;
+/* ---------- voice coach: natural voices (Piper, on this PC) or Windows voices; speaks praise and reads steps on request ---------- */
+const VOICE = {catalog: null, have: {engine: false, installed: []}, audio: null, token: 0, cache: new Map(), busy: null};
+const SPEEDS = [["Relaxed", 0.88], ["Normal", 1], ["Quick", 1.14]];
+const winVoices = () => window.speechSynthesis ? speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)) : [];
+function bestWin() {
+  const vs = winVoices(), want = (S.voiceKey || "").startsWith("win:") ? S.voiceKey.slice(4) : "";
+  const score = v => (v.name === want ? 100 : 0) + (/natural|neural|online/i.test(v.name) ? 20 : 0) + (/aria|jenny|ava|emma|andrew|brian|guy|michelle|sonia|libby/i.test(v.name) ? 6 : 0) + (/en-US/i.test(v.lang) ? 2 : 0) + (/zira|david|mark/i.test(v.name) ? -3 : 0);
+  return [...vs].sort((a, b) => score(b) - score(a))[0] || null;
 }
-if (window.speechSynthesis) { speechSynthesis.onvoiceschanged = pickVoice; pickVoice(); }
-const voiceOn = () => S.voice !== false && !!window.speechSynthesis;
-function speak(text, force) {
-  if ((!voiceOn() && !force) || !window.speechSynthesis) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(String(text).replace(/[`*#]/g, "").replace(/\s+/g, " ").slice(0, 1200));
-  if (VOICE.voice) u.voice = VOICE.voice;
-  u.rate = 1.03; u.pitch = 1.05;
-  u.onstart = () => $("voicebox").classList.add("talking");
-  u.onend = u.onerror = () => $("voicebox").classList.remove("talking");
+const natural = () => { const k = S.voiceKey || ""; return k && !k.startsWith("win:") && VOICE.have.installed.includes(k) ? k : ""; };
+const voiceLabel = () => { const k = natural(); if (k) return (VOICE.catalog.voices.find(v => v.key === k) || {}).name || "Natural"; const w = bestWin(); return w ? w.name.replace(/^Microsoft\s+/, "").replace(/\s*-.*$/, "").replace(/\s*\(.*$/, "") : "Pick a voice"; };
+const voiceOn = () => S.voice !== false;
+const cleanSpeech = t => String(t || "").replace(/```[\s\S]*?```/g, " (see the code on screen) ").replace(/[`*#_>]/g, "").replace(/\s+/g, " ").trim().slice(0, 1500);
+function talking(on) { $("voicebox").classList.toggle("talking", on); }
+function hush() { VOICE.token++; if (VOICE.audio) { VOICE.audio.pause(); VOICE.audio = null; } if (window.speechSynthesis) speechSynthesis.cancel(); talking(false); }
+function chunks(t) {                                        // short pieces, so the first words start quickly
+  const out = []; let buf = "";
+  (t.match(/[^.!?]+[.!?]*\s*/g) || [t]).forEach(s => { if ((buf + s).length > 240 && buf) { out.push(buf); buf = ""; } buf += s; });
+  if (buf.trim()) out.push(buf); return out;
+}
+function synth(key, text) {
+  const id = key + "|" + (S.voiceSpeed || 1) + "|" + text;
+  if (VOICE.cache.has(id)) return VOICE.cache.get(id);
+  const p = call("say", {key, text, speed: S.voiceSpeed || 1}).then(r => r.audio ? "data:audio/wav;base64," + r.audio : null);
+  VOICE.cache.set(id, p); if (VOICE.cache.size > 40) VOICE.cache.delete(VOICE.cache.keys().next().value);
+  p.then(u => { if (!u) VOICE.cache.delete(id); });
+  return p;
+}
+const play = (url, my) => new Promise(res => {
+  if (my !== VOICE.token) return res();
+  const a = new Audio(url); VOICE.audio = a; a.onended = a.onerror = () => res(); talking(true); a.play().catch(() => res());
+});
+function winSpeak(t) {
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(t), v = bestWin(); if (v) u.voice = v;
+  u.rate = 1.03 * (S.voiceSpeed || 1); u.pitch = 1.04;
+  u.onstart = () => talking(true); u.onend = u.onerror = () => talking(false);
   speechSynthesis.speak(u);
 }
-function drawVoice() { const b = $("voice-toggle"); b.textContent = voiceOn() ? "On" : "Off"; b.setAttribute("aria-pressed", String(voiceOn())); }
-$("voice-toggle").addEventListener("click", () => { S.voice = !voiceOn(); if (!S.voice && window.speechSynthesis) speechSynthesis.cancel(); drawVoice(); save(); if (S.voice) speak("Voice coach is on. I've got your back.", true); });
+async function speak(text, force, keyOverride) {
+  if (!voiceOn() && !force) return;
+  hush(); const my = VOICE.token, t = cleanSpeech(text); if (!t) return;
+  const key = keyOverride || natural();
+  if (!key || key.startsWith("win:")) return winSpeak(t);
+  const parts = chunks(t); let next = synth(key, parts[0]);
+  $("voicebox").classList.add("warming");
+  for (let i = 0; i < parts.length; i++) {
+    const url = await next; $("voicebox").classList.remove("warming");
+    if (my !== VOICE.token) return;
+    if (i + 1 < parts.length) next = synth(key, parts[i + 1]);   // make the next piece while this one plays
+    if (!url) { winSpeak(parts.slice(i).join(" ")); return; }    // the natural voice failed: never go silent
+    await play(url, my);
+  }
+  if (my === VOICE.token) talking(false);
+}
+function drawVoice() {
+  const b = $("voice-toggle"); b.textContent = voiceOn() ? "On" : "Off"; b.setAttribute("aria-pressed", String(voiceOn()));
+  $("voice-name").textContent = voiceOn() ? voiceLabel() : "Muted";
+}
+async function loadVoices() {
+  try { VOICE.catalog = await (await fetch("voices.json")).json(); } catch { VOICE.catalog = {voices: []}; }
+  const r = await call("voices"); if (r && !r.error) VOICE.have = r;
+  drawVoice();
+}
+if (window.speechSynthesis) speechSynthesis.onvoiceschanged = drawVoice;
+$("voice-toggle").addEventListener("click", () => { S.voice = !voiceOn(); if (!S.voice) hush(); drawVoice(); save(); if (S.voice) speak("Voice coach is on. I've got your back.", true); });
+$("voice-pick").addEventListener("click", openVoices);
 function listenButton(getText) { const b = el("button", "listen", "Read it to me"); b.addEventListener("click", () => speak(getText(), true)); return b; }
 
+/* the voice picker: hear each voice, download natural ones with one click, set the speed */
+const SAMPLE = n => `Hey Dilan, I'm ${n}. You're doing really well. Let's write some code together.`;
+function openVoices() {
+  const d = $("voicepick"), body = $("vp-body"); body.replaceChildren();
+  const sp = el("div", "seg"); sp.setAttribute("role", "group"); sp.setAttribute("aria-label", "Speaking speed");
+  SPEEDS.forEach(([name, v]) => { const b = el("button", (S.voiceSpeed || 1) === v ? "on" : "", name); b.setAttribute("aria-pressed", String((S.voiceSpeed || 1) === v));
+    b.addEventListener("click", () => { S.voiceSpeed = v; save(); openVoices(); speak("This is how fast I'll talk.", true); }); sp.append(b); });
+  const speedRow = el("div", "vp-row"); speedRow.append(el("b", null, "Speed"), sp); body.append(speedRow);
+
+  body.append(el("h3", null, "Natural voices"), el("p", "note", "These sound the most human. Each one downloads once, then works offline on your PC." + (VOICE.have.engine ? "" : ` The first one also sets up the voice engine (about ${VOICE.catalog.engine ? VOICE.catalog.engine.mb : 22} MB).`)));
+  const grid = el("div", "vp-grid"); body.append(grid);
+  (VOICE.catalog.voices || []).forEach((v, i) => {
+    const have = VOICE.have.installed.includes(v.key), using = natural() === v.key;
+    const c = el("div", "vcard" + (using ? " using" : "")); c.style.setProperty("--i", i);
+    const top = el("div", "vtop"); top.append(el("span", "vav", v.name[0]), el("div"));
+    top.lastChild.append(el("b", null, v.name), el("small", null, v.who));
+    if (v.best) top.append(el("span", "tag", "Most natural"));
+    c.append(top, el("p", "note", v.blurb));
+    const row = el("div", "vbtns"); c.append(row);
+    if (have) {
+      const hear = el("button", null, "Hear it"); hear.addEventListener("click", () => speak(SAMPLE(v.name), true, v.key));
+      const use = el("button", using ? "go" : "", using ? "In use" : "Use this"); use.disabled = using;
+      use.addEventListener("click", () => { S.voiceKey = v.key; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true); });
+      row.append(hear, use);
+    } else {
+      const get = el("button", "go", `Get this voice · about ${v.mb} MB`);
+      const bar = el("div", "vbar"), fill = el("i"); bar.append(fill); bar.hidden = true;
+      const msg = el("small", "vmsg");
+      get.addEventListener("click", async () => {
+        if (VOICE.busy) { msg.textContent = "One download at a time. Another voice is on its way."; return; }
+        VOICE.busy = v.key; get.disabled = true; bar.hidden = false; msg.textContent = "Starting…";
+        const r = await call("voice_get", {key: v.key}, p => {
+          if (p.startsWith("pct ")) { fill.style.width = p.slice(4) + "%"; msg.textContent = p.slice(4) + "%"; }
+          else if (p.startsWith("step ")) { fill.style.width = "0%"; msg.textContent = p.slice(5) + "…"; }
+        });
+        VOICE.busy = null;
+        if (r.error) { msg.textContent = r.error; get.disabled = false; bar.hidden = true; return; }
+        const l = await call("voices"); if (l && !l.error) VOICE.have = l;
+        S.voiceKey = v.key; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true);
+      });
+      row.append(get); c.append(bar, msg);
+    }
+    grid.append(c);
+  });
+
+  const wv = winVoices();
+  body.append(el("h3", null, "Built into Windows"), el("p", "note", wv.length ? "These work right away, no download. They sound more robotic." : "No Windows voices were found on this PC."));
+  const list = el("div", "vp-list"); body.append(list);
+  wv.forEach(w => {
+    const k = "win:" + w.name, using = !natural() && bestWin() === w;
+    const r = el("div", "vrow" + (using ? " using" : "")); r.append(el("span", null, w.name.replace(/^Microsoft\s+/, "")));
+    const hear = el("button", null, "Hear it"); hear.addEventListener("click", () => { hush(); const u = new SpeechSynthesisUtterance(SAMPLE(w.name.split(" ")[1] || "your coach")); u.voice = w; u.rate = 1.03 * (S.voiceSpeed || 1); speechSynthesis.speak(u); });
+    const use = el("button", using ? "go" : "", using ? "In use" : "Use this"); use.disabled = using;
+    use.addEventListener("click", () => { S.voiceKey = k; S.voice = true; save(); drawVoice(); openVoices(); });
+    r.append(hear, use); list.append(r);
+  });
+  if (!d.open) d.showModal();
+}
+$("vp-close").addEventListener("click", () => $("voicepick").close());
+$("voicepick").addEventListener("click", e => { if (e.target === $("voicepick")) $("voicepick").close(); });
+
 /* ---------- views ---------- */
+function moveGlide() {                                       // the sidebar highlight glides to the place you picked
+  const on = document.querySelector(".nav.on"), g = $("glide"); if (!on || !g) return;
+  const first = !g.classList.contains("ready");
+  if (first) g.style.transition = "none";                    // appear in place the first time, glide after that
+  g.style.transform = `translateY(${on.offsetTop}px)`; g.style.height = on.offsetHeight + "px";
+  if (first) { void g.offsetHeight; g.style.transition = ""; g.classList.add("ready"); }
+}
+window.addEventListener("resize", moveGlide);
 let view = "route";
 document.querySelectorAll(".nav").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
 function show(v) {
   view = v;
   document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.view === v));
+  moveGlide();
   const main = $("main"); main.replaceChildren(); main.scrollTop = 0;
   ({route: drawRoute, projects: drawProjects, practice: drawPractice, playground: drawPlayground, coach: drawCoach})[v](main);
   $("side-note").textContent = doneCount() ? `${doneCount()} lesson${doneCount() === 1 ? "" : "s"} done` : "";
@@ -300,10 +415,13 @@ async function openLesson(lesson) {
   }
   showStep();
 }
-function closeLesson() { $("player").classList.remove("on"); state = ""; show(view); }
+function closeLesson() { closeAsk(); hush(); $("player").classList.remove("on"); state = ""; show(view); }
 $("close").addEventListener("click", closeLesson);
 document.addEventListener("keydown", e => {
   if (!$("player").classList.contains("on")) return;
+  if ($("voicepick").open) return;
+  if (e.key === "Escape" && $("askpane").classList.contains("open")) { closeAsk(); $("askbtn").focus(); return; }
+  if (e.target.closest && e.target.closest("#askpane")) return;      // typing a question never moves the lesson on
   if (e.key === "Escape") closeLesson();
   if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); act(); }
 });
@@ -501,6 +619,59 @@ async function nudge(st, b) {
   b.out.textContent = r.error || r.text;
 }
 
+/* ---------- ask a question mid-lesson: a drawer beside the lesson that knows the step and his code ---------- */
+const ASK = {talk: [], lessonKey: null, busy: false};
+function stepContext() {
+  const st = steps[si] || {};
+  const bits = [`Lesson: "${cur.t}" (${cur.unit}). He is on step ${si + 1} of ${steps.length}, a "${KIND[st.k] || "Read"}" step.`];
+  if (st.h) bits.push("Step heading: " + st.h);
+  if (st.t) bits.push("What the step says:\n" + st.t);
+  if (st.q) bits.push("The question or exercise:\n" + st.q);
+  if (st.code) bits.push("Code on screen:\n" + st.code);
+  if (bench && bench.ed) bits.push("His code right now:\n" + bench.ed.value);
+  if (bench && bench.out && bench.out.textContent.trim()) bits.push("The latest output or message:\n" + bench.out.textContent.slice(0, 800));
+  return bits.join("\n\n").slice(0, 4500);
+}
+function askBubble(text, me) {
+  const d = el("div", "say" + (me ? " me" : "")); rich(d, text);
+  $("ask-log").append(d); $("ask-log").scrollTop = 1e6; return d;
+}
+function openAsk(prefill) {
+  if (ASK.lessonKey !== cur.key) {                          // a fresh conversation for each lesson
+    ASK.lessonKey = cur.key; ASK.talk = []; $("ask-log").replaceChildren();
+    askBubble("Stuck, curious, or just want it said another way? Ask anything about this step. I can see what you're looking at and your code.");
+  }
+  const p = $("askpane"); p.style.top = document.querySelector(".ptop").offsetHeight + "px"; p.classList.add("open"); p.inert = false; $("askbtn").setAttribute("aria-expanded", "true");
+  $("player").classList.add("asking");
+  if (prefill) $("ask-q").value = prefill;
+  setTimeout(() => $("ask-q").focus(), 60);
+}
+function closeAsk() {
+  const p = $("askpane"); p.classList.remove("open"); p.inert = true; $("askbtn").setAttribute("aria-expanded", "false");
+  $("player").classList.remove("asking");
+}
+async function sendAsk(q) {
+  q = q.trim(); if (!q || ASK.busy) return;
+  ASK.busy = true; $("ask-send").disabled = true; $("ask-q").value = "";
+  askBubble(q, true);
+  ASK.talk.push({role: "user", content: `(Coach notes: you are Dilan's coding coach. He started from zero. He is in the middle of a lesson and asked about it. Answer his exact question in plain words, using this step's own example where you can, in under 180 words. If it's an exercise, guide him toward the answer without writing the full solution unless he asks for it outright. End with one short check-in question only if it helps.\n\n${stepContext()})\n\n${q}`});
+  const box = askBubble("…"); box.classList.add("thinking");
+  const slow = setTimeout(() => { if (box.classList.contains("thinking")) box.firstChild.textContent = "Thinking… (the first answer can take up to a minute while your Local AI wakes up)"; }, 6000);
+  const r = await call("coach", {messages: ASK.talk.slice(-8)}, t => { box.classList.remove("thinking"); box.replaceChildren(); rich(box, t); $("ask-log").scrollTop = 1e6; });
+  clearTimeout(slow); box.classList.remove("thinking");
+  if (r.error || !r.text) { box.replaceChildren(el("p", null, (r.error || "No answer came back.") + " Is your Local AI running? You can ask again.")); ASK.talk.pop(); }
+  else {
+    box.replaceChildren(); rich(box, r.text); ASK.talk.push({role: "assistant", content: r.text});
+    box.append(listenButton(() => r.text));
+  }
+  ASK.busy = false; $("ask-send").disabled = false; $("ask-q").focus();
+}
+$("askbtn").addEventListener("click", () => $("askpane").classList.contains("open") ? closeAsk() : openAsk());
+$("ask-close").addEventListener("click", closeAsk);
+$("ask-form").addEventListener("submit", e => { e.preventDefault(); sendAsk($("ask-q").value); });
+$("ask-q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAsk($("ask-q").value); } });
+document.querySelectorAll("#ask-chips button").forEach(b => b.addEventListener("click", () => sendAsk(b.textContent)));
+
 /* ---------- lessons the coach writes (every exercise is proven by the engine first) ---------- */
 const NO_PY = /HTML|CSS|flexbox|Responsive|JavaScript|DOM|fetch|React|Accessibility|terminal|Git|VS Code|resume|interview|portfolio|Behavioral|90 days|tech path|profile|Docker|CI\/CD|Cloud|Monitoring|Deploy|Linux|Operating|Networks|website reaches|scale|Scaling|Load balancers|Queues|URL shortener|What system|Memory and the CPU|How programs run|Bits/i;
 function lessonPrompt(topic, unit, mode) {
@@ -562,5 +733,5 @@ function burst() { if (calm) return; const r = $("act").getBoundingClientRect();
 function confetti() { if (calm) return; for (let k = 0; k < 4; k++) setTimeout(() => spawn(innerWidth * (0.2 + 0.2 * k), innerHeight * 0.35, 40, 7, 6), k * 120); }
 
 /* ---------- start ---------- */
-call("load").then(v => { if (v && v.done) Object.assign(S, v); drawVoice(); show("route"); });
+call("load").then(v => { if (v && v.done) Object.assign(S, v); loadVoices(); show("route"); });
 }

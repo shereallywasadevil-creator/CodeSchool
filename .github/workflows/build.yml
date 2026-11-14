@@ -30,6 +30,30 @@ jobs:
       - name: Check every lesson exercise with a correct answer, and the runner
         run: python tools/check_lessons.py
 
+      - name: Check the natural voices (every download address works, and Piper really speaks)
+        shell: pwsh
+        run: |
+          $cat = Get-Content src/CodeSchool/web/voices.json -Raw | ConvertFrom-Json
+          foreach ($v in $cat.voices) {
+            $p = $v.key.Split('-'); $lang = $p[0]
+            $url = "$($cat.base)/$($lang.Substring(0,2))/$lang/$($p[1])/$($p[2])/$($v.key).onnx"
+            $h = Invoke-WebRequest -Uri $url -Method Head -MaximumRedirection 5
+            $mb = [math]::Round([int64]$h.Headers['Content-Length'][0] / 1MB)
+            Invoke-WebRequest -Uri "$url.json" -Method Head -MaximumRedirection 5 | Out-Null
+            Write-Host "OK $($v.key): $mb MB (catalog says $($v.mb))"
+          }
+          Invoke-WebRequest $cat.engine.url -OutFile piper.zip
+          Expand-Archive piper.zip -DestinationPath piper_test
+          $exe = Get-ChildItem piper_test -Recurse -Filter piper.exe | Select-Object -First 1
+          $v = "en_US-amy-medium"; $u = "$($cat.base)/en/en_US/amy/medium/$v.onnx"
+          Invoke-WebRequest $u -OutFile "$v.onnx"; Invoke-WebRequest "$u.json" -OutFile "$v.onnx.json"
+          Push-Location $exe.DirectoryName
+          "Nice work, Dilan. That passed every check." | & $exe.FullName --model "$env:GITHUB_WORKSPACE/$v.onnx" --output_file "$env:GITHUB_WORKSPACE/say.wav" --length_scale 1.00 --sentence_silence 0.25
+          Pop-Location
+          $size = (Get-Item say.wav).Length
+          if ($size -lt 20000) { throw "Piper made a sound file of only $size bytes" }
+          Write-Host "Piper spoke: say.wav is $size bytes"
+
       - name: Get Python to carry inside the app (official embeddable package from python.org)
         shell: pwsh
         run: |

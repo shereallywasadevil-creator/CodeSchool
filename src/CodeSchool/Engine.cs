@@ -15,6 +15,7 @@ namespace CodeSchool;
 ///  run / trace - run the learner's Python (real Python, in a throwaway folder, stopped after 10 seconds);
 ///  coach       - ask the learner's Local AI (Ollama on this PC) a question;
 ///  lesson      - have the Local AI write a new lesson, keeping only exercises PROVEN to be passable;
+///  voices / voice_get / say - natural voices (see Voices.cs);
 ///  load / save - progress, kept in %LOCALAPPDATA%\CodeSchool\progress.json.
 /// </summary>
 public sealed class Engine
@@ -26,6 +27,7 @@ public sealed class Engine
     private static readonly SemaphoreSlim PythonLock = new(1, 1);
     private static string? _python;
     private static string _webDir = "";
+    public static string WebDir => _webDir;
 
     private const string Ollama = "http://127.0.0.1:11434";
     private static readonly string[] Preferred = { "qwen3.5:9b", "qwen2.5-coder:7b", "qwen3.5:2b" };
@@ -118,6 +120,15 @@ public sealed class Engine
             }
             case "lesson":
                 return await MakeLesson(Str("prompt"));
+            case "voices":
+                return Voices.List();
+            case "voice_get":
+                return await Voices.Get(Str("key"), partial);
+            case "say":
+            {
+                double speed = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("speed", out var sp) && sp.ValueKind == JsonValueKind.Number ? sp.GetDouble() : 1.0;
+                return await Voices.Say(Str("key"), Str("text"), speed);
+            }
             case "load":
                 try { return JsonNode.Parse(await File.ReadAllTextAsync(ProgressFile)) ?? new JsonObject(); }
                 catch { return new JsonObject(); }

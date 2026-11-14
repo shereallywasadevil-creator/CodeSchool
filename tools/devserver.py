@@ -64,7 +64,7 @@ class H(BaseHTTPRequestHandler):
         if WEB not in f.parents or not f.is_file():
             self.send_error(404)
             return
-        types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}
+        types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json"}
         self.send(f.read_bytes(), types.get(f.suffix, "application/octet-stream"))
 
     def do_POST(self):
@@ -79,6 +79,10 @@ class H(BaseHTTPRequestHandler):
                               "fail": "Hint from the checker: " + res[5:] if res.startswith("FAIL:") else ""})
         if kind == "trace":
             return self.send(runner({"mode": "trace", "code": p.get("code", "")}))
+        if kind == "voices":                     # natural voices need the real app (Piper on Windows)
+            return self.send({"engine": False, "installed": []})
+        if kind in ("voice_get", "say"):
+            return self.send({"error": "Natural voices work in the desktop app."})
         if kind == "coach":
             return self.send(coach(p.get("messages") or [{"role": "user", "content": p.get("prompt", "")}]))
         if kind == "lesson":
