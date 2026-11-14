@@ -48,10 +48,10 @@ jobs:
           Write-Host "Pack files:"; Get-ChildItem $d | ForEach-Object { Write-Host "  $($_.Name)" }
           Push-Location $exe.DirectoryName
           & $exe.FullName --help 2>&1 | Select-String "kokoro" | ForEach-Object { Write-Host "  flag: $_" }
-          $args = @("--kokoro-model=$($model.FullName)", "--kokoro-voices=$d\voices.bin", "--kokoro-tokens=$d\tokens.txt", "--kokoro-data-dir=$d\espeak-ng-data")
-          if (Test-Path "$d\lexicon-us-en.txt") { $args += "--kokoro-lexicon=$d\lexicon-us-en.txt" }
-          $args += @("--kokoro-length-scale=1.00", "--num-threads=2", "--sid=3", "--output-filename=$env:GITHUB_WORKSPACE\say.wav", "Nice work, Dilan. That passed every check.")
-          $t = Measure-Command { & $exe.FullName @args 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Host "  $_" } }
+          $ka = @("--kokoro-model=$($model.FullName)", "--kokoro-voices=$d\voices.bin", "--kokoro-tokens=$d\tokens.txt", "--kokoro-data-dir=$d\espeak-ng-data")
+          if (Test-Path "$d\lexicon-us-en.txt") { $ka += "--kokoro-lexicon=$d\lexicon-us-en.txt" }
+          $ka += @("--kokoro-length-scale=1.00", "--num-threads=2", "--sid=3", "--output-filename=$env:GITHUB_WORKSPACE\say.wav", "Nice work, Dilan. That passed every check.")
+          $t = Measure-Command { & $exe.FullName @ka 2>&1 | Select-Object -Last 6 | ForEach-Object { Write-Host "  $_" } }
           Pop-Location
           if (-not (Test-Path say.wav)) { throw "Kokoro made no sound file" }
           $size = (Get-Item say.wav).Length
