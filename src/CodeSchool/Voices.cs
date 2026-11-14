@@ -9,7 +9,7 @@ namespace CodeSchool;
 /// <summary>
 /// Human-sounding voices with Kokoro, run by sherpa-onnx on this PC (no internet once set up, nothing in the cloud).
 /// One download (the engine + one voice pack) unlocks every voice. Nothing downloads until the learner clicks.
-/// Files go to %LOCALAPPDATA%\CodeSchool\kokoro-engine and \kokoro-voices.
+/// Files go to %LOCALAPPDATA%\CodeSchool\kokoro-engine and \kokoro-voices-hq.
 ///   voices      -> {"ready": bool}
 ///   voice_get   -> downloads + unpacks both (with Windows' own tar.exe); streams "step ..." and "pct NN"
 ///   say         -> {"audio": base64 wav} in voice number `sid`
@@ -18,7 +18,7 @@ namespace CodeSchool;
 public static class Voices
 {
     private static readonly string EngineDir = Path.Combine(Engine.DataDir, "kokoro-engine");
-    private static readonly string PackDir = Path.Combine(Engine.DataDir, "kokoro-voices");
+    private static readonly string PackDir = Path.Combine(Engine.DataDir, "kokoro-voices-hq");   // full quality; the older compressed pack in kokoro-voices is left untouched
     private static readonly HttpClient Web = new() { Timeout = TimeSpan.FromMinutes(40) };
     private static readonly SemaphoreSlim DownloadLock = new(1, 1);
     private static readonly SemaphoreSlim SpeakLock = new(1, 1);
@@ -31,7 +31,7 @@ public static class Voices
     private static string? Find(string dir, string pattern) =>
         Directory.Exists(dir) ? Directory.EnumerateFiles(dir, pattern, SearchOption.AllDirectories).FirstOrDefault() : null;
     private static string? Exe() => Find(EngineDir, "sherpa-onnx-offline-tts.exe");
-    private static string? Model() => Find(PackDir, "model.int8.onnx") ?? Find(PackDir, "model.onnx");
+    private static string? Model() => Find(PackDir, "model.onnx");
     private static bool Ready() => Exe() != null && Model() != null;
 
     public static JsonObject List() => new() { ["ready"] = Ready() };

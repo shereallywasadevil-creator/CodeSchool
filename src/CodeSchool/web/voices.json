@@ -1,18 +1,89 @@
 {
- "engine": {"name": "sherpa-onnx", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.5/sherpa-onnx-v1.13.5-win-x64-shared-MT-Release.tar.bz2", "mb": 25},
- "pack": {"name": "Kokoro", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2", "mb": 132},
+ "engine": {
+  "name": "sherpa-onnx",
+  "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.5/sherpa-onnx-v1.13.5-win-x64-shared-MT-Release.tar.bz2",
+  "mb": 25
+ },
+ "pack": {
+  "name": "Kokoro (full quality)",
+  "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+  "mb": 330
+ },
  "voices": [
-  {"sid": 3,  "name": "Heart",    "who": "American woman", "best": true, "blurb": "Warm and bright. The most natural of the set."},
-  {"sid": 16, "name": "Michael",  "who": "American man",   "best": true, "blurb": "Friendly, relaxed and clear."},
-  {"sid": 21, "name": "Emma",     "who": "British woman",  "best": true, "blurb": "Calm, kind and easy to follow."},
-  {"sid": 2,  "name": "Bella",    "who": "American woman", "blurb": "Upbeat and expressive."},
-  {"sid": 14, "name": "Fenrir",   "who": "American man",   "blurb": "Deeper and confident."},
-  {"sid": 26, "name": "George",   "who": "British man",    "blurb": "Steady, like a good teacher."},
-  {"sid": 9,  "name": "Sarah",    "who": "American woman", "blurb": "Gentle and patient."},
-  {"sid": 18, "name": "Puck",     "who": "American man",   "blurb": "Lively and playful."},
-  {"sid": 25, "name": "Fable",    "who": "British man",    "blurb": "Storyteller style."},
-  {"sid": 6,  "name": "Nicole",   "who": "American woman", "blurb": "Soft and quiet, almost a whisper."},
-  {"sid": 22, "name": "Isabella", "who": "British woman",  "blurb": "Clear and polished."},
-  {"sid": 11, "name": "Adam",     "who": "American man",   "blurb": "Plain and straightforward."}
+  {
+   "sid": 3,
+   "name": "Heart",
+   "who": "American woman",
+   "best": true,
+   "blurb": "Warm and bright. The most natural of the set."
+  },
+  {
+   "sid": 16,
+   "name": "Michael",
+   "who": "American man",
+   "best": true,
+   "blurb": "Friendly, relaxed and clear."
+  },
+  {
+   "sid": 21,
+   "name": "Emma",
+   "who": "British woman",
+   "best": true,
+   "blurb": "Calm, kind and easy to follow."
+  },
+  {
+   "sid": 2,
+   "name": "Bella",
+   "who": "American woman",
+   "blurb": "Upbeat and expressive."
+  },
+  {
+   "sid": 14,
+   "name": "Fenrir",
+   "who": "American man",
+   "blurb": "Deeper and confident."
+  },
+  {
+   "sid": 26,
+   "name": "George",
+   "who": "British man",
+   "blurb": "Steady, like a good teacher."
+  },
+  {
+   "sid": 9,
+   "name": "Sarah",
+   "who": "American woman",
+   "blurb": "Gentle and patient."
+  },
+  {
+   "sid": 18,
+   "name": "Puck",
+   "who": "American man",
+   "blurb": "Lively and playful."
+  },
+  {
+   "sid": 25,
+   "name": "Fable",
+   "who": "British man",
+   "blurb": "Storyteller style."
+  },
+  {
+   "sid": 6,
+   "name": "Nicole",
+   "who": "American woman",
+   "blurb": "Soft and quiet, almost a whisper."
+  },
+  {
+   "sid": 22,
+   "name": "Isabella",
+   "who": "British woman",
+   "blurb": "Clear and polished."
+  },
+  {
+   "sid": 11,
+   "name": "Adam",
+   "who": "American man",
+   "blurb": "Plain and straightforward."
+  }
  ]
 }

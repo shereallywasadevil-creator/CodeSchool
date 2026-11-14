@@ -73,14 +73,15 @@ function chunks(t) {                                        // short pieces, so 
 function synth(sid, text) {
   const id = sid + "|" + (S.voiceSpeed || 1) + "|" + text;
   if (VOICE.cache.has(id)) return VOICE.cache.get(id);
-  const p = call("say", {sid, text, speed: S.voiceSpeed || 1}).then(r => r.audio ? "data:audio/wav;base64," + r.audio : null);
+  const p = call("say", {sid, text, speed: S.voiceSpeed || 1}).then(r => r.audio ? {url: "data:audio/wav;base64," + r.audio} : {error: r.error || "The voice didn't answer."});
   VOICE.cache.set(id, p); if (VOICE.cache.size > 40) VOICE.cache.delete(VOICE.cache.keys().next().value);
-  p.then(u => { if (!u) VOICE.cache.delete(id); });
+  p.then(r => { if (!r.url) VOICE.cache.delete(id); });
   return p;
 }
 const play = (url, my) => new Promise(res => {
-  if (my !== VOICE.token) return res();
-  const a = new Audio(url); VOICE.audio = a; a.onended = a.onerror = () => res(); talking(true); a.play().catch(() => res());
+  if (my !== VOICE.token) return res("");
+  const a = new Audio(url); VOICE.audio = a; a.onended = () => res(""); a.onerror = () => res("The sound couldn't play.");
+  talking(true); a.play().catch(e => res("The sound couldn't play (" + e.name + ")."));
 });
 function winSpeak(t) {
   if (!window.speechSynthesis) return;
@@ -89,21 +90,25 @@ function winSpeak(t) {
   u.onstart = () => talking(true); u.onend = u.onerror = () => talking(false);
   speechSynthesis.speak(u);
 }
-async function speak(text, force, sidOverride) {
+async function speak(text, force, sidOverride, onState) {   // onState: "making", "playing", "done", or an error sentence
   if (!voiceOn() && !force) return;
   hush(); const my = VOICE.token, t = cleanSpeech(text); if (!t) return;
   const key = sidOverride != null ? sidOverride : natural();
-  if (key == null) return winSpeak(t);
+  const tell = st => { if (onState) onState(st); };
+  if (key == null) { winSpeak(t); return tell("done"); }
   const parts = chunks(t); let next = synth(key, parts[0]);
-  $("voicebox").classList.add("warming");
+  $("voicebox").classList.add("warming"); tell("making");
   for (let i = 0; i < parts.length; i++) {
-    const url = await next; $("voicebox").classList.remove("warming");
-    if (my !== VOICE.token) return;
+    const r = await next; $("voicebox").classList.remove("warming");
+    if (my !== VOICE.token) return tell("done");
     if (i + 1 < parts.length) next = synth(key, parts[i + 1]);   // make the next piece while this one plays
-    if (!url) { winSpeak(parts.slice(i).join(" ")); return; }    // the natural voice failed: never go silent
-    await play(url, my);
+    if (!r.url) { tell(r.error); winSpeak(parts.slice(i).join(" ")); return; }   // never go silent
+    tell("playing");
+    const bad = await play(r.url, my);
+    if (bad) { tell(bad); return; }
   }
   if (my === VOICE.token) talking(false);
+  tell("done");
 }
 function drawVoice() {
   const b = $("voice-toggle"); b.textContent = voiceOn() ? "On" : "Off"; b.setAttribute("aria-pressed", String(voiceOn()));
@@ -157,10 +162,20 @@ function openVoices() {
     c.append(top, el("p", "note", v.blurb));
     if (ready) {
       const row = el("div", "vbtns");
-      const hear = el("button", null, "Hear it"); hear.addEventListener("click", () => speak(SAMPLE(v.name), true, v.sid));
+      const hear = el("button", null, "Hear it"), note = el("small", "vmsg");
+      hear.addEventListener("click", () => {
+        document.querySelectorAll(".vcard .hearing").forEach(b => { b.classList.remove("hearing"); b.textContent = "Hear it"; });
+        hear.classList.add("hearing"); note.textContent = "";
+        speak(SAMPLE(v.name), true, v.sid, st => {
+          if (!hear.classList.contains("hearing") && st !== "making") return;
+          if (st === "making") hear.textContent = "Getting ready…";
+          else if (st === "playing") hear.textContent = "Playing…";
+          else { hear.classList.remove("hearing"); hear.textContent = "Hear it"; if (st !== "done") note.textContent = st; }
+        });
+      });
       const use = el("button", using ? "go" : "", using ? "In use" : "Use this"); use.disabled = using;
       use.addEventListener("click", () => { S.voiceKey = "k:" + v.sid; S.voice = true; save(); drawVoice(); openVoices(); speak(SAMPLE(v.name), true); });
-      row.append(hear, use); c.append(row);
+      row.append(hear, use); c.append(row, note);
     }
     grid.append(c);
   });

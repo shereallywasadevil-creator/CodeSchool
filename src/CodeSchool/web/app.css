@@ -264,6 +264,8 @@ textarea.ed{border:0;outline:0;resize:vertical;min-height:260px;width:100%;backg
 .vtop .tag{margin-left:auto;font-size:12px;font-weight:600;color:var(--ok);background:var(--okbg);padding:3px 8px;border-radius:999px;white-space:nowrap}
 .vav{width:38px;height:38px;flex:none;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;
  background:conic-gradient(from 210deg,#ff5a4e,#ff9a6b,#7b6cff,#ff5a4e)}
+.vbtns button.hearing{border-color:var(--ok);color:var(--ok);animation:hearpulse 1.4s ease-in-out infinite}
+@keyframes hearpulse{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}}
 .vbtns{display:flex;gap:8px;margin-top:auto}.vbtns button{min-height:36px;padding:0 14px;font-size:14px;flex:1}
 .vbar{height:6px;border-radius:4px;background:var(--raised);overflow:hidden}.vbar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
 .vmsg{color:var(--dim);font-size:13px;min-height:1em}
