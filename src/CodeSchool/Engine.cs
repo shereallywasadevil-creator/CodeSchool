@@ -272,6 +272,10 @@ public sealed class Engine
                     if ((string?)ok["res"] != "PASS" || (string?)bad["res"] == "PASS") { dropped++; continue; }
                     st.Remove("solution");                     // never sent to the page: the learner earns it
                 }
+                else if (k == "O")
+                {
+                    if (st["lines"] is not JsonArray ol || ol.Count < 3) continue;
+                }
                 else if (k == "V")
                 {
                     if (string.IsNullOrWhiteSpace((string?)st["code"])) continue;

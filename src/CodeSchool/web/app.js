@@ -23,7 +23,7 @@ const LESSONS = UNITS.flatMap(u => u.lessons);
 const byKey = k => LESSONS.find(l => l.key === k) || PROJECTS.find(p => p.key === k);
 
 /* ---------- saved progress ---------- */
-let S = {done: {}, ran: 0, days: [], missed: [], gen: {}, carry: {}};
+let S = {done: {}, ran: 0, days: [], missed: [], gen: {}, carry: {}, rev: {}};
 const today = () => new Date().toISOString().slice(0, 10);
 let saveTimer = 0;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call("save", {data: S}), 300); }
@@ -68,6 +68,11 @@ function drawRoute(main) {
   [[doneCount(), "lessons done"], [S.ran, "programs you ran"], [S.days.length, S.days.length === 1 ? "day learning" : "days learning"]]
     .forEach(([n, t]) => { const f = el("div", "fact"); f.append(el("b", null, String(n)), el("span", null, t)); facts.append(f); });
   hero.append(card, facts); v.append(hero);
+  const due = dueReviews();
+  if (due.length) {
+    const r = el("div", "review"); r.append(el("div", null, `${due.length} question${due.length === 1 ? "" : "s"} from earlier lessons ${due.length === 1 ? "is" : "are"} ready for review. Two minutes now keeps them from fading.`));
+    const b = el("button", "go", "Review now"); b.addEventListener("click", startReview); r.append(b); v.append(r);
+  }
   const map = el("div", "map"); v.append(map);
   UNITS.forEach(u => {
     const box = el("section", "unit"); box.style.setProperty("--c", u.color);
@@ -107,6 +112,10 @@ function drawPractice(main) {
   const v = el("div", "view"); main.append(v);
   v.append(el("h1", null, "Practice"), el("p", "lead", "Practice is where things stick. Redo what tripped you up, or get fresh exercises on anything you've learned."));
   const cards = el("div", "cards"); v.append(cards);
+  const due = dueReviews(), rc = el("div", "card");
+  rc.append(el("span", "tag", "Daily review"), el("h3", null, due.length ? `${due.length} ready today` : "All caught up"),
+    el("p", "note", due.length ? "Questions you got right before come back after 1, 3, 7 and 21 days. Remembering them from memory is what makes them stick." : `${Object.keys(S.rev).length} questions are scheduled. They'll come back right before you'd start to forget them.`));
+  const rb = el("button", "go", "Start review"); rb.disabled = !due.length; rb.addEventListener("click", startReview); rc.append(rb); cards.append(rc);
   const m = el("div", "card");
   m.append(el("span", "tag", "Your mistakes"), el("h3", null, S.missed.length ? `${S.missed.length} question${S.missed.length === 1 ? "" : "s"} to lock in` : "Nothing to review"),
     el("p", "note", S.missed.length ? "Questions you got wrong before. Getting them right now is how they stick." : "When you miss a question, it lands here so you can come back to it."));
@@ -258,7 +267,19 @@ function foot(kind, title, sub, label) {
   const m = $("msg"); m.replaceChildren(); if (title) m.append(el("b", null, title)); if (sub) m.append(el("span", null, sub));
   $("act").textContent = label; $("act").disabled = false;
 }
-const KIND = {L: "New idea", V: "Watch it run", P: "Quick check", F: "Fill the blank", W: "Write real code"};
+const KIND = {L: "New idea", V: "Watch it run", P: "Quick check", F: "Fill the blank", W: "Write real code", O: "Code puzzle"};
+
+/* ---------- daily review: questions come back after 1, 3, 7, 21 and 60 days (spaced retrieval) ---------- */
+const GAPS = [1, 3, 7, 21, 60];
+const addDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const stepKey = st => { let h = 0; const j = JSON.stringify([st.k, st.q, st.code, st.lines]); for (let i = 0; i < j.length; i++) h = (h * 31 + j.charCodeAt(i)) | 0; return "r" + (h >>> 0).toString(36); };
+function schedule(st, right) {
+  if (!["P", "F", "O"].includes(st.k)) return;
+  const k = stepKey(st), r = S.rev[k] || {st, lvl: -1};
+  r.lvl = right ? Math.min(r.lvl + 1, GAPS.length - 1) : 0;
+  r.due = addDays(GAPS[Math.max(r.lvl, 0)]); S.rev[k] = r;
+}
+const dueReviews = () => Object.values(S.rev).filter(r => r.due <= today()).slice(0, 15);
 
 function showStep() {
   const st = steps[si], stage = $("stage"); stage.replaceChildren(); stage.scrollTop = 0;
@@ -295,6 +316,22 @@ function showStep() {
     inp.addEventListener("input", () => { $("act").disabled = !inp.value.trim(); });
     inp.addEventListener("keydown", e => { if (e.key === "Enter" && inp.value.trim()) act(); });
     text.append(inp); state = "check"; foot("", "", "", "Check"); $("act").disabled = true; setTimeout(() => inp.focus(), 60);
+  } else if (st.k === "O") {
+    const pieces = st.lines.map((t, i) => ({t, i})).sort(() => Math.random() - 0.5);
+    const board = el("div", "puzzle"), left = el("div", "pz"), right = el("div", "pz");
+    left.append(el("h4", null, "Pieces")); right.append(el("h4", null, "Your program"));
+    const lpool = el("div", "pzlist"), rpool = el("div", "pzlist"); left.append(lpool); right.append(rpool);
+    let placed = [];
+    const draw = () => {
+      lpool.replaceChildren(); rpool.replaceChildren();
+      pieces.filter(p => !placed.includes(p)).forEach(p => { const b = el("button", "piece", p.t || "(blank line)"); b.addEventListener("click", () => { if (state !== "check") return; placed.push(p); draw(); }); lpool.append(b); });
+      placed.forEach(p => { const b = el("button", "piece", p.t || "(blank line)"); b.addEventListener("click", () => { if (state !== "check") return; placed = placed.filter(x => x !== p); draw(); }); rpool.append(b); });
+      if (!placed.length) rpool.append(el("p", "note", "Click pieces in the order they should run."));
+      $("act").disabled = placed.length !== pieces.length;
+    };
+    board.append(left, right); text.append(board);
+    bench = {order: () => placed.map(p => p.i)};
+    state = "check"; foot("", "", "", "Check"); draw();
   } else if (st.k === "W") {
     let start = st.start;
     if (st.carry || start == null) start = (carryCode ? carryCode.replace(/\s*$/, "") + "\n\n" : "") + (st.start || "# " + st.q.split("\n")[0].replace(/^Milestone \d+\. /, "") + "\n");
@@ -323,6 +360,9 @@ async function act() {
     const v = $("fill").value.replace(/\s+/g, "").toLowerCase();
     ok = st.a.some(a => String(a).replace(/\s+/g, "").toLowerCase() === v);
     if (!ok) why = "The answer is " + st.a[0] + ". " + why;
+  } else if (st.k === "O") {
+    const order = bench.order(); ok = order.every((v, i) => st.lines[v] === st.lines[i]);
+    if (!ok) why = "The right order is:\n" + st.lines.join("\n") + "\n\n" + why;
   } else if (st.k === "W") {
     $("act").disabled = true; $("act").textContent = "Checking…";
     const r = await call("run", {code: bench.ed.value, test: st.test}); paint(bench.out, r); S.ran++;
@@ -330,6 +370,7 @@ async function act() {
     if (ok) { carryCode = bench.ed.value; if (cur.project) { S.carry[cur.key] = carryCode; S.carry[cur.key + "#at"] = si + 1; } }
   }
   if (!wrongOnce) tried++;
+  if (!wrongOnce || cur.review) schedule(st, ok);
   if (ok) {
     if (!wrongOnce) firstTry++;
     run++; burst();
@@ -337,7 +378,7 @@ async function act() {
     state = "next";
   } else {
     run = 0; wrongOnce = true;
-    if (st.k !== "W" && !cur.review && !S.missed.some(m => JSON.stringify(m) === JSON.stringify(st))) { S.missed.push(st); S.missed = S.missed.slice(-40); }
+    if (st.k !== "W" && !cur.review && !cur.daily && !S.missed.some(m => JSON.stringify(m) === JSON.stringify(st))) { S.missed.push(st); S.missed = S.missed.slice(-40); }
     if (st.k === "W") foot("bad", "Not yet. Keep going.", " " + why, "Check again");
     else { foot("bad", pick(SOFT), " " + why, "Continue"); state = "next"; }
   }
@@ -347,8 +388,8 @@ async function act() {
 $("act").addEventListener("click", act);
 
 function finish() {
-  const first = !S.done[cur.key] && !cur.review && !cur.extra;
-  if (!cur.review && !cur.extra) S.done[cur.key] = today();
+  const first = !S.done[cur.key] && !cur.review && !cur.extra && !cur.daily;
+  if (!cur.review && !cur.extra && !cur.daily) S.done[cur.key] = today();
   if (cur.review) S.missed = S.missed.filter(m => !steps.includes(m));
   if (!S.days.includes(today())) S.days.push(today());
   if (cur.project) { delete S.carry[cur.key]; delete S.carry[cur.key + "#at"]; }
@@ -368,11 +409,24 @@ function finish() {
   if (first) call("coach", {prompt: `Dilan is a beginner learning to code toward a tech job. He just finished "${cur.t}" (${cur.unit}) with ${pct}% right first try, and has now finished ${n} lessons. Write one or two sentences of genuine, specific encouragement naming what he can now do that he couldn't before. Warm, plain, no emoji.`})
     .then(r => { if (r.text) { note.textContent = r.text; note.className = ""; } });
   confetti();
+  if (cur.project && cur.yours) {
+    const y = el("div", "explain"); y.style.textAlign = "left";
+    y.append(el("h3", null, "Make it yours"), el("p", "note", "This is where real skill comes from: add something the steps didn't tell you to. Pick one and build it in the Playground with your code."));
+    const ul = el("ul"); cur.yours.forEach(t => ul.append(el("li", null, t))); y.append(ul);
+    const pb = el("button", "go", "Open my code in the Playground"); const code = carryCode;
+    pb.addEventListener("click", () => { playCode = code + "\n\n# Make it yours: add your feature below\n"; closeLesson(); show("playground"); }); y.append(pb);
+    box.append(y);
+  }
   if (!cur.review && !cur.project) {
     const more = el("button", null, "Extra practice on this"); more.addEventListener("click", () => extraPractice(cur));
     const row = el("div", "row"); row.style.justifyContent = "center"; row.append(more); box.append(row);
   }
   state = "close"; foot("good", cur.project ? "Project complete" : "Lesson complete", "", "Back to my route");
+}
+
+function startReview() {
+  const due = dueReviews(); if (!due.length) return;
+  openLesson({t: "Daily review", key: "daily", unit: "Practice", color: "#3ecf8e", review: true, daily: true, steps: due.map(r => r.st)});
 }
 
 /* ---------- the coach inside lessons ---------- */
@@ -400,6 +454,7 @@ Return ONLY JSON: {"steps": [ ... ]}. Each step is one of:
 ${py ? `{"k":"V","h":"heading","t":"what to watch for","code":"a short Python example (under 12 lines, no input()) to step through line by line"}` : ""}
 {"k":"P","q":"question","code":"optional code","opts":["4 options"],"a":0,"why":"why the right answer is right"}
 {"k":"F","q":"fill-the-blank instruction","code":"code with ___ for the blank","a":["accepted answer"],"why":"..."}
+${py ? `{"k":"O","q":"put the lines in order so that ...","lines":["the lines of a short program in the CORRECT order, indentation included"],"why":"..."} (include 1)` : ""}
 ${py ? `{"k":"W","q":"a Python exercise (first line is the title)","start":"starter code that does NOT pass yet","test":"Python asserts with helpful messages; OUT holds what was printed","hint":"...","solution":"your own complete correct solution: it is run against the test before Dilan sees it"} (include 2 or 3; for SQL topics use sqlite3 in memory)` : `(This topic isn't Python: use P and F steps plus L steps with real commands or snippets.)`}
 Start with an L step.`;
 }

@@ -6,13 +6,15 @@
      P pick         {q, opts, a, why, code?}
      F fill blank   {q, code, a: [accepted], why}
      W write code   {q, start, test, hint, carry?}   test: Python asserts; OUT = what was printed
-                                                      carry: start from the code of the previous W step */
+                                                      carry: start from the code of the previous W step
+     O code puzzle  {q, lines, why}         lines in the correct order (indentation included); shown shuffled */
 "use strict";
 const L = (h, t, code) => ({k: "L", h, t, code});
 const V = (h, t, code) => ({k: "V", h, t, code});
 const P = (q, opts, a, why, code) => ({k: "P", q, opts, a, why, code});
 const F = (q, code, a, why) => ({k: "F", q, code, a, why});
 const W = (q, start, test, hint, carry) => ({k: "W", q, start, test, hint, carry});
+const O = (q, lines, why) => ({k: "O", q, lines, why});     // code puzzle: put the lines in the right order
 
 window.COURSE = [
 {id: "u1", name: "First steps", color: "#ff5a4e", sub: "Talk to the computer", lessons: [
@@ -62,6 +64,7 @@ window.COURSE = [
   L("elif and else", "`elif` (else-if) checks another condition when the first was False. `else` catches everything left over.\n\nOnly one branch of an if/elif/else ever runs: Python takes the first one that's True and skips the rest."),
   P("With temp = 30, what prints?", ["hot", "hot then mild", "mild", "cold"], 0, "30 > 25 is True, so the first branch runs and the rest are skipped."),
   P("What's wrong here?", ["The print isn't indented", "Missing quotes", "Should be ==", "Nothing"], 0, "Lines inside an if must be indented 4 spaces.", 'if 5 > 3:\nprint("yes")'),
+  O("Put these lines in order so the program prints \"underdog\".", ["odds = 180", "if odds > 0:", "    print(\"underdog\")", "else:", "    print(\"favourite\")"], "The variable is set first, then the if checks it. The indented print belongs to the line above it."),
   W("Write `grade(score)` that returns \"A\" for 90 and up, \"B\" for 80 to 89, \"C\" for 70 to 79 and \"F\" below 70.\n\n`return` hands the answer back (you'll learn more about it in Functions).", "def grade(score):\n    pass\n", "assert grade(95) == 'A' and grade(90) == 'A', '90 and up is A'\nassert grade(89) == 'B' and grade(80) == 'B', '80 to 89 is B'\nassert grade(70) == 'C' and grade(79) == 'C', '70 to 79 is C'\nassert grade(69) == 'F', 'below 70 is F'", "if score >= 90: return \"A\", then elif score >= 80: … Order matters: check the biggest first."),
   W("Write `who_wins(home, away)` that returns \"home\", \"away\" or \"tie\" for a final score.", "def who_wins(home, away):\n    pass\n", "assert who_wins(110, 102) == 'home'\nassert who_wins(99, 104) == 'away'\nassert who_wins(3, 3) == 'tie', 'equal scores are a tie'", "Three branches: if home > away, elif away > home, else."),
  ]}]},
@@ -72,6 +75,7 @@ window.COURSE = [
   P("How many times does this print?", ["4", "5", "3", "Forever"], 0, "range(1, 5) is 1, 2, 3, 4. It stops before the end number.", "for n in range(1, 5):\n    print(n)"),
   L("The adding-up pattern", "One of the most common patterns in all of programming: start a total at 0, then add to it inside the loop."),
   V("Watch the total grow", "Step through and watch total climb on every pass.", "total = 0\nfor n in range(1, 6):\n    total = total + n\nprint(total)"),
+  O("Put the lines in order to add up 1 to 5 and print 15.", ["total = 0", "for n in range(1, 6):", "    total = total + n", "print(total)"], "Start the total before the loop, add inside it (indented), print after it (not indented)."),
   F("Fill the blank to loop over 1 to 10, including 10", "for n in range(1, ___):", ["11"], "range stops one before the end, so 11."),
   W("Write `count_evens(n)` returning how many even numbers there are from 1 to n, including n.\n\n`x % 2 == 0` is True when x is even.", "def count_evens(n):\n    count = 0\n    # loop here\n    return count\n", "assert count_evens(10) == 5, 'from 1 to 10 there are 5 evens'\nassert count_evens(1) == 0\nassert count_evens(8) == 4, 'include n itself: range(1, n + 1)'", "for x in range(1, n + 1): if x % 2 == 0: count = count + 1"),
   W("Write `total_points(games)` that adds up a list of game scores with a loop (don't use sum()).", "def total_points(games):\n    total = 0\n    return total\n", "assert total_points([20, 31, 18]) == 69\nassert total_points([]) == 0", "for g in games: total = total + g"),
@@ -98,6 +102,7 @@ window.COURSE = [
   P("What does stats.get(\"steals\", 0) give?", ["0", "Error", "None", "steals"], 0, ".get gives back a default when the key is missing, instead of crashing.", 'stats = {"points": 20}'),
   L("Counting with a dictionary", "A pattern you'll use forever: count how often things appear. `.get(key, 0)` gives 0 the first time a key is seen."),
   V("Watch the counting", "Each pass adds 1 to that word's count.", 'counts = {}\nfor w in ["go", "stop", "go"]:\n    counts[w] = counts.get(w, 0) + 1\nprint(counts)'),
+  O("Put the lines in order to count how often each word appears.", ["counts = {}", "for w in [\"go\", \"stop\", \"go\"]:", "    counts[w] = counts.get(w, 0) + 1", "print(counts)"], "Make the empty dictionary first, count inside the loop, print at the end."),
   W("Write `word_counts(text)` returning how many times each word appears, ignoring upper and lower case. `.split()` breaks text into words and `.lower()` makes it lowercase.", "def word_counts(text):\n    counts = {}\n    return counts\n", "assert word_counts('Go go GO stop') == {'go': 3, 'stop': 1}, 'lowercase each word with .lower()'\nassert word_counts('') == {}", "for w in text.lower().split(): counts[w] = counts.get(w, 0) + 1"),
  ]}]},
 {id: "u5", name: "Functions", color: "#a78bfa", sub: "Build your own tools", lessons: [
@@ -105,6 +110,7 @@ window.COURSE = [
   L("A reusable mini-program", "A function is a named block of code you can use again and again, like a blender: put ingredients in, get a smoothie out.\n\n`def` starts it, the inputs (parameters) go in brackets, the body is indented, and `return` hands the result back."),
   V("Watch a function get called", "Notice the arrow jump into the function when it's called, x take the value 21, and the result come back.", "def double(x):\n    result = x * 2\n    return result\n\nanswer = double(21)\nprint(answer)"),
   P("print shows a value. What does return do?", ["Hands the value back to the code that called the function", "Shows it on screen", "Ends Python", "Saves it to a file"], 0, "Other code (and the checker) uses what you return. print only displays it."),
+  O("Put the lines in order to define a function and use it.", ["def triple(x):", "    return x * 3", "", "print(triple(5))"], "A function has to be defined before it's called."),
   F("Fill the blank to start a function called greet", "___ greet(name):\n    return f\"Hi {name}\"", ["def"], "def is short for define."),
   W("Write `fair_chance(odds)` that turns American betting odds into a win chance:\n\nnegative odds: -odds / (-odds + 100)\npositive odds: 100 / (odds + 100)\n\nRound to 3 decimals with round(x, 3).", "def fair_chance(odds):\n    pass\n", "assert fair_chance(-150) == 0.6, '-150 -> 150 / 250 = 0.6'\nassert fair_chance(150) == 0.4, '+150 -> 100 / 250 = 0.4'\nassert fair_chance(-110) == 0.524", "if odds < 0: return round(-odds / (-odds + 100), 3), else return the other formula."),
  ]},
@@ -124,29 +130,41 @@ window.COURSE = [
   W("Fix the code above so it prints 6.", "nums = [1, 2, 3]\ntotal = 0\nfor n in nums:\n    total = n\nprint(total)\n", "assert OUT.strip() == '6', 'total should grow each time: total = total + n'", "total = n replaces the total. You want to add n to it."),
   W("This code crashes. Read the error, then fix it so it prints 10.", "points = [4, 6]\ntotal = 0\nfor p in points:\n    total = totl + p\nprint(total)\n", "assert OUT.strip() == '10', 'check the spelling of every variable name'", "Read the last line of the error: which name isn't defined?"),
  ]},
+ {t: "Checking AI-written code", steps: [
+  L("AI writes code. You check it.", "AI assistants (including the coach in this app) write code fast, and they're often right. Often isn't always.\n\nAt work, the person who can read AI code and catch its mistakes is worth far more than the person who pastes it in. Hiring managers say this skill puts people ahead.\n\nThe habit: never trust code you haven't read and run. Read it line by line, guess what it does, then test it on a tricky case."),
+  P("An AI wrote this to average a list. What's wrong?", ["It crashes on an empty list", "It adds wrong", "len is misspelled", "Nothing"], 0, "sum([]) / len([]) divides by zero. AI code often forgets the edge cases.", "def average(nums):\n    return sum(nums) / len(nums)"),
+  P("An AI wrote this to check if someone can vote at 18 or older. What's the bug?", ["> should be >=", "It should return a string", "age needs quotes", "Nothing"], 0, "18-year-olds can vote, but 18 > 18 is False. Comparison mistakes are some of the most common AI bugs.", "def can_vote(age):\n    return age > 18"),
+  V("Test it, don't trust it", "Watch the AI's function run on an edge case. The output shows the bug that reading alone might miss.", "def can_vote(age):\n    return age > 18\n\nprint(can_vote(30))\nprint(can_vote(18))"),
+  P("Which test would catch most AI mistakes fastest?", ["The edge cases: empty input, zero, exact boundaries", "A normal, typical input", "Running it twice", "Reading the comments"], 0, "Typical inputs usually work. Bugs hide at the edges."),
+  W("An AI wrote `last_word(text)` to return the last word of a sentence, but it crashes on an empty string. Fix it so an empty string returns \"\".", "def last_word(text):\n    return text.split()[-1]\n", "assert last_word('go team go') == 'go'\nassert last_word('') == '', 'empty text has no words: return \"\" instead of crashing'", "Check if text.split() is empty before taking [-1]."),
+ ]},
  {t: "try and except", steps: [
   L("Plan for problems", "Some errors you can see coming: a user types \"n/a\" where you expected a number. `try:` runs risky code, and if a specific error happens, `except` runs instead of crashing.\n\nCatch only the errors you expect. Catching everything hides real bugs."),
   V("Watch except catch an error", "Step through: when int(\"n/a\") fails, Python jumps to the except line.", 'def safe_int(text):\n    try:\n        return int(text)\n    except ValueError:\n        return None\n\nprint(safe_int("7"))\nprint(safe_int("n/a"))'),
   P("What does safe_int(\"7\") return?", ["7", "None", "\"7\"", "Error"], 0, "int(\"7\") works, so the try part returns 7."),
+  O("Put the lines in order so a bad value prints \"not a number\" instead of crashing.", ["text = \"abc\"", "try:", "    print(int(text))", "except ValueError:", "    print(\"not a number\")"], "try comes first with the risky line indented under it, then except with what to do instead."),
   W("Write `parse_scores(items)` that turns a list of strings into ints, skipping anything that isn't a whole number (like \"n/a\" or \"\").", "def parse_scores(items):\n    pass\n", "assert parse_scores(['10', 'n/a', '7', '', ' 3 ']) == [10, 7, 3], 'int(\" 3 \") works; skip the rest with try/except ValueError'\nassert parse_scores([]) == []", "out = [], then for x in items: try: out.append(int(x)) except ValueError: pass"),
  ]}]},
 ];
 
 window.PROJECTS = [
- {id: "p1", t: "League scoreboard", after: "u4", color: "#ff9f43", blurb: "Track wins and build live standings, like a sports app's table.", steps: [
+ {id: "p1", t: "League scoreboard", after: "u4", color: "#ff9f43", blurb: "Track wins and build live standings, like a sports app's table.",
+  yours: ["Add losses, and sort by win percentage instead of wins", "Add a function that prints the standings as a neat table with f-strings", "Track points scored and break ties by point difference"], steps: [
   L("What you're building", "A scoreboard that records wins and shows the standings. You'll build it in four milestones, and each one adds to the code you already wrote, the way real apps grow.\n\nYour code carries over from milestone to milestone, so build carefully."),
   W("Milestone 1. Write `new_board(teams)` that returns a dictionary with every team at 0 wins.", "def new_board(teams):\n    pass\n", "b = new_board(['Bulls', 'Heat'])\nassert b == {'Bulls': 0, 'Heat': 0}, 'every team starts at 0'\nassert new_board([]) == {}", "board = {}, then for t in teams: board[t] = 0"),
   W("Milestone 2. Add `add_win(board, team)` that adds one win. A team that isn't on the board yet gets added with 1 win.", null, "b = {'Bulls': 0}\nadd_win(b, 'Bulls'); add_win(b, 'Bulls'); add_win(b, 'Knicks')\nassert b == {'Bulls': 2, 'Knicks': 1}, 'use .get(team, 0) + 1'", "board[team] = board.get(team, 0) + 1", true),
   W("Milestone 3. Add `leader(board)` that returns the team with the most wins (None for an empty board).", null, "assert leader({'Bulls': 2, 'Heat': 5, 'Knicks': 1}) == 'Heat'\nassert leader({}) is None", "max(board, key=board.get) finds the key with the biggest value.", true),
   W("Milestone 4. Add `standings(board)` that returns a list of (team, wins) pairs, most wins first; ties sorted A to Z by name.", null, "s = standings({'Bulls': 2, 'Heat': 5, 'Knicks': 2})\nassert s == [('Heat', 5), ('Bulls', 2), ('Knicks', 2)], 'sort by wins high to low, then name A to Z'", "sorted(board.items(), key=lambda kv: (-kv[1], kv[0])). The minus sign flips the order to high-to-low.", true),
  ]},
- {id: "p2", t: "Odds calculator", after: "u5", color: "#a78bfa", blurb: "Turn betting odds into real chances and spot the bookmaker's cut.", steps: [
+ {id: "p2", t: "Odds calculator", after: "u5", color: "#a78bfa", blurb: "Turn betting odds into real chances and spot the bookmaker's cut.",
+  yours: ["Add decimal odds (like 2.50) and convert between both styles", "Write fair_odds(a, b) that removes the cut and returns fair American odds for both sides", "Compare two sportsbooks' odds for the same game and say which side is cheaper where"], steps: [
   L("What you're building", "Sportsbooks show odds like -150 or +200. Your calculator turns them into percentages, removes the bookmaker's built-in cut, and converts back."),
   W("Milestone 1. `to_chance(odds)`: American odds to a chance between 0 and 1, rounded to 4 decimals.", "def to_chance(odds):\n    pass\n", "assert to_chance(-150) == 0.6 and to_chance(200) == 0.3333 and to_chance(100) == 0.5", "negative: -odds / (-odds + 100); positive: 100 / (odds + 100)"),
   W("Milestone 2. `book_cut(a, b)`: how much over 100% the two sides add up to, as a percent rounded to 1 decimal. That extra is the bookmaker's profit.", null, "assert book_cut(-110, -110) == 4.8, '0.5238 + 0.5238 = 1.0476 -> 4.8%'\nassert book_cut(100, 100) == 0.0", "round((to_chance(a) + to_chance(b) - 1) * 100, 1)", true),
   W("Milestone 3. `to_odds(chance)`: back to American odds, rounded to a whole number. 0.5 and above gives negative odds.", null, "assert to_odds(0.6) == -150 and to_odds(0.25) == 300 and to_odds(0.5) == -100", "chance >= 0.5: round(-100 * chance / (1 - chance)); else round(100 * (1 - chance) / chance)", true),
  ]},
- {id: "p3", t: "Text adventure engine", after: "u6", color: "#f6c343", blurb: "The engine behind a game: rooms, moves and a story log.", steps: [
+ {id: "p3", t: "Text adventure engine", after: "u6", color: "#f6c343", blurb: "The engine behind a game: rooms, moves and a story log.",
+  yours: ["Add items in rooms and a 'take' command with an inventory list", "Add a locked door that only opens if you carry the key", "Write your own map of at least six rooms with a goal room that ends the game"], steps: [
   L("What you're building", "Every text adventure has the same engine underneath: a map of rooms, a player position, and commands that move you. You'll write the engine and test it with a tiny map."),
   W("Milestone 1. `ROOMS` is given. Write `move(room, direction)` that returns the room you end up in, or the same room if there's no exit that way.", "ROOMS = {\n    \"hall\": {\"north\": \"library\", \"east\": \"kitchen\"},\n    \"library\": {\"south\": \"hall\"},\n    \"kitchen\": {\"west\": \"hall\"},\n}\n\ndef move(room, direction):\n    pass\n", "assert move('hall', 'north') == 'library'\nassert move('library', 'south') == 'hall'\nassert move('kitchen', 'north') == 'kitchen', 'no exit that way: stay put'", "ROOMS[room].get(direction, room)"),
   W("Milestone 2. Write `play(start, commands)` that applies each command in turn and returns the final room.", null, "assert play('hall', ['north', 'south', 'east']) == 'kitchen'\nassert play('hall', []) == 'hall'", "room = start; for c in commands: room = move(room, c); return room", true),
@@ -162,7 +180,7 @@ window.LATER = [
  ["u11", "The web: front end", "#fb7185", ["HTML structure", "CSS styling", "Layout with flexbox and grid", "Responsive design", "JavaScript basics", "The DOM and events", "fetch and async code", "React basics", "Accessibility"]],
  ["u12", "Back ends and APIs", "#a3e635", ["How HTTP works", "REST APIs", "Build an API in Python", "Authentication and passwords", "Error handling and logging", "Background jobs and caching"]],
  ["u13", "Databases", "#fbbf24", ["Tables and SQL SELECT", "Filtering and sorting", "JOINs", "GROUP BY and totals", "Designing tables", "Indexes and speed", "NoSQL databases"]],
- ["u14", "Engineering practice", "#2dd4bf", ["Clean code", "Testing strategy", "Code review", "Debugging hard problems", "Security basics", "Performance", "Docs that help"]],
+ ["u14", "Engineering practice", "#2dd4bf", ["Clean code", "Testing strategy", "Code review", "Reviewing AI-written code", "Debugging hard problems", "Security basics", "Performance", "Docs that help"]],
  ["u15", "Cloud and DevOps", "#cbd5e1", ["Linux basics", "Deploying an app", "Docker", "CI/CD pipelines", "Cloud services", "Monitoring"]],
  ["u16", "Data and AI", "#c084fc", ["Data with pandas", "Charts with Python", "Statistics you actually need", "How machine learning works", "How AI models work", "Building with AI APIs", "Using AI coding tools well"]],
  ["u17", "System design", "#38bdf8", ["What system design is", "Scaling a web app", "Load balancers and caches", "Databases at scale", "Queues and events", "Design a URL shortener"]],

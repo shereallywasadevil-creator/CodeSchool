@@ -6,7 +6,11 @@ A Windows app that teaches coding from zero to job-ready, one small step at a ti
 - **Small steps:** read a little, watch code run line by line, answer a quick check, write real code that gets tested.
 - **Watch it run:** step through any code and see each variable change, like a debugger built for learning.
 - **Projects:** a league scoreboard, an odds calculator and a text adventure engine, built milestone by milestone.
+- **Code puzzles:** put mixed-up lines in order, a proven stepping stone between reading and writing code.
+- **Daily review:** questions come back after 1, 3, 7, 21 and 60 days, right before you would forget them.
 - **Practice:** redo what you missed, or get fresh exercises on anything you've learned.
+- **Make it yours:** after each project, ideas for features of your own, built in the Playground.
+- **Checking AI-written code:** spot the bugs an AI assistant leaves behind.
 - **Your coach:** your own Local AI (Ollama) explains, hints and writes later lessons. Every exercise it writes is
   run against its own answer before you see it, so you never get stuck on a broken check.
 
